@@ -1,2 +1,1 @@
-# ClustIRR_melanoma_paper_data
-Processed data and code for paper on TCR repertoire analysis on primary melanoma tumors vs. sentinel lymph nodes 
+Scripts and processed datasets from the paper "Spatial Compartmentalization of TCR Repertoires Between Primary Melanomas and Sentinel Lymph Nodes Reveals Distinct Clonal Architectures and Shared Antigen Recognition"

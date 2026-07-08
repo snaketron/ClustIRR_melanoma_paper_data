@@ -1,5 +1,5 @@
 ---
-title: "Fig 7 + Supplementary_ps_graph"
+title: "Fig 7 + SFig 5"
 author: "SK"
 date: "`r Sys.Date()`"
 output:
@@ -11,9 +11,6 @@ editor_options:
 ---
 
 ```{r}
-.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
-source("/mnt/nfs/simo/r_utils/Stats.R")
-
 library(dplyr)
 library(ggplot2)
 library(ggforce)
@@ -138,7 +135,7 @@ fig_7_logo
 
 
 ```{r}
-ggsave(filename = "manuscript_fig/Fig_7_logos.pdf",
+ggsave(filename = "Fig_7_logos.pdf",
        plot = fig_7_logo,
        device = "pdf",
        width = 3,
@@ -181,7 +178,7 @@ rm(i)
 
 
 ```{r}
-ggsave(filename = "manuscript_fig/Fig_7_D.pdf",
+ggsave(filename = "Fig_7_B.pdf",
        plot = fig_7_D,
        device = "pdf",
        width = 1,
@@ -270,7 +267,7 @@ g
 
 
 ```{r}
-ggsave(filename = "manuscript_fig/Fig_7A.pdf",
+ggsave(filename = "Fig_7A.pdf",
        plot = g,
        device = "pdf",
        width = 5,
@@ -329,7 +326,7 @@ g_sup
 ```
 
 ```{r}
-ggsave(filename = "manuscript_fig/Supplementary_ps_graph.pdf",
+ggsave(filename = "SFig_5.pdf",
        plot = g_sup,
        device = "pdf",
        width = 14,

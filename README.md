@@ -6,5 +6,5 @@ Melanomas and Sentinel Lymph Nodes Reveals Distinct Clonal Architectures and Sha
 directory **data/**: processed TCRbeta repertoires
 
 ## Code to reproduce analyses and recreate figures
-directory **src/**: Code to generated main figures 1-7 and the supplementary data
+directory **src/**: Code to generate main figures 1-7 and the supplementary files
 

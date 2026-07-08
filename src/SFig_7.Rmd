@@ -1,5 +1,5 @@
 ---
-title: "Fig 6 + Supplementary_rs_graph"
+title: "Fig 7: ClustIRR ppc"
 author: "SK"
 date: "`r Sys.Date()`"
 output:
@@ -11,20 +11,7 @@ editor_options:
 ---
 
 ```{r}
-.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
-source("/mnt/nfs/simo/r_utils/Stats.R")
-
-library(dplyr)
 library(ggplot2)
-library(ggforce)
-library(ggrepel)
-library(patchwork)
-library(ClustIRR)
-library(igraph)
-library(visNetwork)
-library(ggnetwork)
-library(gglogo)
-library(Biostrings)
 ggplot2::theme_set(new = theme_bw(base_size = 10))
 ```
 
@@ -59,7 +46,7 @@ fig_ppc
 ```
 
 ```{r}
-ggsave(filename = "manuscript_fig/Supplementary_PPC.pdf",
+ggsave(filename = "SFig_7.pdf",
        plot = fig_ppc,
        device = "pdf",
        width = 10,

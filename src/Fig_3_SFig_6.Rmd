@@ -1,5 +1,5 @@
 ---
-title: "DGU Analysis"
+title: "Fig 3 + SFig 6: IgGeneUsage Analysis"
 author: "SK"
 date: "`r Sys.Date()`"
 output:
@@ -9,13 +9,6 @@ editor_options:
   markdown: 
     wrap: 65
 ---
-
-```{r, include=FALSE}
-.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
-source("/mnt/nfs/simo/r_utils/Stats.R")
-source("/mnt/nfs/simo/r_utils/Graphics.R")
-```
-
 
 ```{r, include=FALSE}
 library(ggplot2)
@@ -37,7 +30,7 @@ knitr::opts_chunk$set(echo = F, message = F, warning = F)
 
 
 ```{r}
-t <- get(load("results/TCRb.RData"))
+t <- get(load("data/TCRb.RData"))
 t$patient_id_num <- as.character(t$patient_id_num)
 ```
 
@@ -265,7 +258,7 @@ g
 
 
 ```{r, fig.width=6, fig.height=5, eval=T}
-ggsave(filename = "manuscript_fig/Main_DGU.pdf",
+ggsave(filename = "Fig_3.pdf",
        plot = g,
        device = "pdf",
        width = 8,
@@ -312,7 +305,7 @@ sup_2
 
 
 ```{r, fig.width=6, fig.height=5, eval=T}
-ggsave(filename = "manuscript_fig/Supplementary_PPC.pdf",
+ggsave(filename = "SFig_6.pdf",
        plot = sup_2,
        device = "pdf",
        width = 11,

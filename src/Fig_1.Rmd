@@ -1,5 +1,5 @@
 ---
-title: "Diversity Analysis"
+title: "Fig 1: NRADs"
 author: "SK"
 date: "`r Sys.Date()`"
 output:
@@ -10,12 +10,6 @@ editor_options:
     wrap: 65
 ---
 
-
-```{r, include=FALSE}
-.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
-source("/mnt/nfs/simo/r_utils/Stats.R")
-source("/mnt/nfs/simo/r_utils/Graphics.R")
-```
 
 
 ```{r, include=FALSE}
@@ -32,9 +26,8 @@ knitr::opts_chunk$set(echo = F, message = F, warning = F)
 ```
 
 ```{r}
-t <- get(load("results/TCRb.RData"))
+t <- get(load("data/TCRb.RData"))
 ```
-
 
 
 # Diversity analysis with NRADs
@@ -135,7 +128,7 @@ g_H
 
 
 ```{r, fig.width=3.5, fig.height=3.3}
-ggsave(filename = "manuscript_fig/Supplementary_Figure_H.pdf",
+ggsave(filename = "Fig_1_inset.pdf",
        plot = g_H,
        device = "pdf",
        width = 1.5,
@@ -160,7 +153,7 @@ g_nrads
 
 
 ```{r}
-ggsave(filename = "manuscript_fig/Main_Figure_NRADs.pdf",
+ggsave(filename = "Fig_1.pdf",
        plot = g_nrads,
        device = "pdf",
        width = 4,

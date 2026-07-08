@@ -1,5 +1,5 @@
 ---
-title: "Manuscript HLA associated coms"
+title: "SFig: HLA associated DCJs"
 author: "SK"
 date: "`r Sys.Date()`"
 output:
@@ -12,18 +12,12 @@ editor_options:
 
 
 ```{r}
-.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
-source("/mnt/nfs/simo/r_utils/Stats.R")
-
 library(dplyr)
 library(ggplot2)
 library(ggforce)
 library(ggrepel)
 library(patchwork)
 library(ClustIRR)
-library(Biostrings)
-library(igraph)
-ggplot2::theme_set(new = theme_bw(base_size = 10))
 ```
 
 ```{r, include=FALSE}
@@ -188,15 +182,11 @@ for(hla in HLAs) {
 rm(q, hla, ha, n, key)
 ```
 
-<!-- CASSYGQAYEQYF -->
-
 
 ```{r}
 # recurrent coms selected
 rs <- c(20665, 40231, 22077, 35, 6995, 7730, 130, 4640)
 ```
-
-
 
 
 ```{r, fig.width=4, fig.height=4}
@@ -319,8 +309,9 @@ g_prevalence <- ggplot(data = z)+
 
 
 ```{r}
-e <- get(load("/mnt/nfs/simo/AIRR/TCR_PT_SLN/Emerson.RData"))
-meta_e <- get(load("/mnt/nfs/simo/AIRR/TCR_PT_SLN/meta_Emerson.RData"))
+# these are not provided in this Github repositor because they are too big: extract from Emerson dataset on 666 patients
+e <- get(load("data/Emerson.RData"))
+meta_e <- get(load("data/meta_Emerson.RData"))
 ```
 
 
@@ -375,7 +366,7 @@ sfig_delta
 
 
 ```{r}
-ggsave(filename = "manuscript_fig/Supplementary_HLA.pdf",
+ggsave(filename = "SFig_4.pdf",
        plot = sfig_delta,
        device = "pdf",
        width = 12,

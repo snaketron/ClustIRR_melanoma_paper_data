@@ -1,5 +1,5 @@
 ---
-title: "Fig 6 + Supplementary_rs_graph"
+title: "Fig 6 + SFig 3"
 author: "SK"
 date: "`r Sys.Date()`"
 output:
@@ -11,9 +11,6 @@ editor_options:
 ---
 
 ```{r}
-.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
-source("/mnt/nfs/simo/r_utils/Stats.R")
-
 library(dplyr)
 library(ggplot2)
 library(ggforce)
@@ -149,7 +146,6 @@ rs <- c(20665, 40231, 22077, 35, 6995, 7730, 130, 4640)
 ```
 
 
-
 ```{r}
 # depth
 depth <- aggregate(clone_size~sample_name, data = ns, FUN = sum)
@@ -234,7 +230,7 @@ fig_6_ab
 ```
 
 ```{r}
-ggsave(filename = "manuscript_fig/Fig_6_AB.pdf",
+ggsave(filename = "Fig_6_AB.pdf",
        plot = fig_6_ab,
        device = "pdf",
        width = 7,
@@ -259,7 +255,7 @@ fig_6_logo
 
 
 ```{r}
-ggsave(filename = "manuscript_fig/Fig_6_logos.pdf",
+ggsave(filename = "Fig_6_logos.pdf",
        plot = fig_6_logo,
        device = "pdf",
        width = 3,
@@ -302,7 +298,7 @@ rm(i, pos)
 
 
 ```{r}
-ggsave(filename = "manuscript_fig/Fig_6_D.pdf",
+ggsave(filename = "Fig_6_D.pdf",
        plot = fig_6_D,
        device = "pdf",
        width = 1,
@@ -401,7 +397,7 @@ g
 
 
 ```{r}
-ggsave(filename = "manuscript_fig/Fig_6_C.pdf",
+ggsave(filename = "Fig_6_C.pdf",
        plot = g,
        device = "pdf",
        width = 7,
@@ -458,7 +454,7 @@ g_sup
 ```
 
 ```{r}
-ggsave(filename = "manuscript_fig/Supplementary_rs_graph.pdf",
+ggsave(filename = "SFig_3.pdf",
        plot = g_sup,
        device = "pdf",
        width = 6,

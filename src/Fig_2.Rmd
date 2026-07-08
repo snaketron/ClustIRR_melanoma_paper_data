@@ -1,5 +1,5 @@
 ---
-title: "CDR3 Analysis"
+title: "Fig 2"
 author: "SK"
 date: "`r Sys.Date()`"
 output:
@@ -9,12 +9,6 @@ editor_options:
   markdown: 
     wrap: 65
 ---
-
-```{r, include=FALSE}
-.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
-source("/mnt/nfs/simo/r_utils/Stats.R")
-source("/mnt/nfs/simo/r_utils/Graphics.R")
-```
 
 
 ```{r, include=FALSE}
@@ -35,8 +29,8 @@ knitr::opts_chunk$set(echo = F, message = F, warning = F)
 # Figure: CDR3 length in PT and SLN samples
 
 ```{r}
-tnp <- get(load("results/TCRb_nonprod.RData"))
-t <- get(load("results/TCRb.RData"))
+tnp <- get(load("data/TCRb_nonprod.RData"))
+t <- get(load("data/TCRb.RData"))
 ```
 
 
@@ -290,105 +284,10 @@ g_cdr3
 
 
 ```{r}
-ggsave(filename = "manuscript_fig/Main_Figure_CDR3.pdf",
+ggsave(filename = "Fig_2.pdf",
        plot = g_cdr3,
        device = "pdf",
        width = 7,
        height = 4)
 ```
 
-
-```{r}
-# cleanup
-rm(p, ta, y, y_post_c, y_post_pc, y_prior_pc, model_m, cdr3_len,
-   fit_prod, fit_nonprod, indels, indels_pt, indels_sln, s, t,
-   indels_top, tc, cdr3_len_top, fit_top_prod, top_cdr3s,
-   g, g_cdr3, g_cdr3_difference, g_indels, g_cdr3_top, tnp)
-```
-
-
-# SFig
-
-# Figure: CDR3 length in PT and SLN samples
-
-```{r}
-t <- get(load("results/TCRb.RData"))
-```
-
-
-```{r}
-get_cdr3_len <- function(name, prod, t) {
-  
-  # PT
-  q_pt <- t[t$name == name & t$tissue == "PT" & t$prod == prod, ]
-  y_pt <- rep(q_pt$cdr3_length, times = q_pt$templates)
-  
-  # SLN
-  q_sln <- t[t$name == name & t$tissue == "SLN" & t$prod == prod, ]
-  y_sln <- rep(q_sln$cdr3_length, times = q_sln$templates)
-  
-  o <- data.frame(name = name, 
-                  productive = prod,
-                  mean_cdr3_pt = mean(q_pt$cdr3_length),
-                  mean_cdr3_sln = mean(q_sln$cdr3_length),
-                  delta_cdr3 = mean(q_pt$cdr3_length)-mean(q_sln$cdr3_length), 
-                  wmean_cdr3_pt = mean(y_pt),
-                  wmean_cdr3_sln = mean(y_sln),
-                  wdelta_cdr3 =  mean(y_pt)-mean(y_sln),
-                  days_surgery = q_pt$days_surgery[1],
-                  timing = q_pt$timing[1],
-                  stadium = q_pt$Stadium[1])
-  return(o)
-}
-```
-
-
-```{r}
-cdr3_len <- do.call(rbind, lapply(X = unique(t$name), FUN = get_cdr3_len, t = t, prod = T))
-
-mean(cdr3_len$mean_cdr3_pt, na.rm = T)
-mean(cdr3_len$mean_cdr3_sln, na.rm = T)
-```
-
-
-```{r}
-cdr3_len_mda <- do.call(rbind, lapply(X = unique(t$name), FUN = get_cdr3_len, t = t[t$vdjdb_MDA==1, ], prod = T))
-cdr3_len_mda$group <- "MDA"
-cdr3_len_cta <- do.call(rbind, lapply(X = unique(t$name), FUN = get_cdr3_len, t = t[t$vdjdb_CTA==1, ], prod = T))
-cdr3_len_cta$group <- "CTA"
-cdr3_len <- rbind(cdr3_len_mda, cdr3_len_cta)
-
-mean(cdr3_len_mda$mean_cdr3_pt, na.rm = T)
-mean(cdr3_len_mda$mean_cdr3_sln, na.rm = T)
-
-mean(cdr3_len_cta$mean_cdr3_pt, na.rm = T)
-mean(cdr3_len_cta$mean_cdr3_sln, na.rm = T)
-```
-
-
-
-```{r, fig.width=4, fig.height=6, warning=FALSE}
-
-g <- ggplot(data = cdr3_len)+
-  facet_wrap(facets = ~group, ncol = 1)+
-  geom_point(aes(y = mean_cdr3_pt, x = mean_cdr3_sln), size = 1.5, 
-             stroke = 0, alpha = 0.8)+
-  theme_bw(base_size = 10)+
-  theme(legend.position = "top", strip.text.x = element_text(margin = margin(0.05,0,0.05,0, "cm")))+
-  geom_abline(intercept = 0, slope = 1, linetype = "dashed", col = "gray")+
-  ylab("Mean CDR3 length [nt] in PT")+
-  xlab("Mean CDR3 length [nt] in SLN")+
-  scale_x_continuous(breaks = scales::pretty_breaks(n=4), limits = c(32, 47))+
-  scale_y_continuous(breaks = scales::pretty_breaks(n=4), limits = c(32, 47))
-
-g
-```
-
-
-```{r}
-ggsave(filename = "manuscript_fig/Supplementary_CDR3_mAgs.pdf",
-       plot = g,
-       device = "pdf",
-       width = 2.5,
-       height = 4)
-```

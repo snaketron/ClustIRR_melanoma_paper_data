@@ -1,5 +1,5 @@
 ---
-title: "Analysis of melanoma-specific communities and their differences"
+title: "Fig 4"
 author: "SK"
 date: "`r Sys.Date()`"
 output:
@@ -9,12 +9,6 @@ editor_options:
   markdown: 
     wrap: 65
 ---
-
-```{r, include=FALSE}
-.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
-source("/mnt/nfs/simo/r_utils/Stats.R")
-source("/mnt/nfs/simo/r_utils/Graphics.R")
-```
 
 
 ```{r, include=FALSE}
@@ -36,12 +30,12 @@ knitr::opts_chunk$set(echo = F, message = F, warning = F)
 # Load data
 
 ```{r}
-t <- get(load(file = "results/TCRb.RData"))
+t <- get(load(file = "data/TCRb.RData"))
 ```
 
 
 ```{r}
-u <- aggregate(templates~bio_identity_key+tissue+patient_id+patient_id_num+cdr3_amino_acid+vdjdb_MDA+vdjdb_CTA, 
+u <- aggregate(templates~tissue+patient_id_num+cdr3_amino_acid+vdjdb_MDA+vdjdb_CTA, 
                data = t, FUN = sum)
 
 n <- aggregate(templates~tissue+patient_id, data = t, FUN = sum)
@@ -416,7 +410,7 @@ g
 
 
 ```{r}
-ggsave(filename = "manuscript_fig/Main_Figure_Clones.pdf",
+ggsave(filename = "Fig_4.pdf",
        plot = g,
        device = "pdf",
        width = 6,

@@ -10,10 +10,6 @@ editor_options:
     wrap: 65
 ---
 
-```{r, include=FALSE}
-.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
-```
-
 
 ```{r, include=FALSE}
 library(ggplot2)
@@ -86,7 +82,7 @@ fig_5
 
 
 ```{r}
-ggsave(filename = "manuscript_fig/Fig_5.pdf",
+ggsave(filename = "Fig_5.pdf",
        plot = fig_5,
        device = "pdf",
        width = 5.35,
@@ -126,7 +122,7 @@ fig_5_inset
 
 
 ```{r}
-ggsave(filename = "manuscript_fig/Fig_5_inset.png",
+ggsave(filename = "Fig_5_inset.png",
        plot = fig_5_inset,
        device = "png",
        width = 3,
@@ -214,68 +210,6 @@ sfig_cs <- ggplot()+
   scale_x_discrete(limits = c("PT-vs-PT", "SLN-vs-SLN", 
                               "PT-vs-SLN (B)", "PT-vs-SLN (W)"))
 
-
-
-sfig_cs
-
-
-ggsave(plot = sfig_cs, filename = "manuscript_fig/Supplementary_CS.pdf",
-       width = 5, height = 3)
-
+ggsave(plot = sfig_cs, filename = "SFig_2.pdf", width = 5, height = 3)
 ```
-
-
-## Biases due to depth?
-
-```{r}
-ns <- dc_light$ns
-
-csdf$depth_i <- NA
-csdf$depth_j <- NA
-for(i in 1:nrow(csdf)) {
-  csdf$depth_i[i] <- sum(ns$clone_size[ns$patient_id_num == csdf$patient_id_num_i[i] &
-                                         ns$tissue == csdf$tissue_i[i]])
-  csdf$depth_j[i] <- sum(ns$clone_size[ns$patient_id_num == csdf$patient_id_num_j[i] &
-                                         ns$tissue == csdf$tissue_j[i]])
-}
-rm(i)
-```
-
-
-```{r}
-csdf$min_depth <- apply(X = csdf[, c("depth_i", "depth_j")], MARGIN = 1, FUN = min)
-csdf$max_depth <- apply(X = csdf[, c("depth_i", "depth_j")], MARGIN = 1, FUN = max)
-csdf$delta_depth <- abs(csdf$depth_i-csdf$depth_j)
-x <- csdf[duplicated(csdf$key)==F,]
-x <- x[x$i != x$j,]
-
-cor.test(x = x$min_depth, y = x$CS, method = "spearman")
-cor.test(x = x$max_depth, y = x$CS, method = "spearman")
-
-g_depth_cs <- ggplot(data = x)+
-  geom_point(aes(x = min_depth, y = CS),
-             position = position_jitter(width = 0.01))+
-  scale_x_log10()+
-  ggtitle(label = "", subtitle = expression("Spearman "*rho*"=0.15"))+
-  xlab(label = "Minimum repertoire depth")+
-  theme(legend.position = "top")+
-  scale_color_discrete(name = "G")+
-  annotation_logticks(base = 10, sides = "b")
-g_depth_cs
-```
-
-```{r, fig.width=5, fig.height=6}
-ggplot(data = x)+
-  geom_point(aes(x = min_depth, y = max_depth, col = CS, size = CS),
-             position = position_jitter(width = 0.01))+
-  scale_x_log10(name = "Minimum repertoire depth")+
-  scale_y_log10(name = "Maximum repertoire depth")+
-  ggtitle(label = "", subtitle = expression("Spearman "*rho*"=0.15"))+
-  theme(legend.position = "top")+
-  annotation_logticks(base = 10, sides = "lb")+
-  scale_color_distiller(palette = "Spectral")
-```
-
-
-
 

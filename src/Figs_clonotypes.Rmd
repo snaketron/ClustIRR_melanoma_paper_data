@@ -1,0 +1,427 @@
+---
+title: "Analysis of melanoma-specific communities and their differences"
+author: "SK"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    highlight: kate
+editor_options: 
+  markdown: 
+    wrap: 65
+---
+
+```{r, include=FALSE}
+.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
+source("/mnt/nfs/simo/r_utils/Stats.R")
+source("/mnt/nfs/simo/r_utils/Graphics.R")
+```
+
+
+```{r, include=FALSE}
+library(ggplot2)
+library(ggforce)
+library(ggrepel)
+library(patchwork)
+library(dplyr)
+library(tidyr)
+library(rstan)
+```
+
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+```
+
+
+# Load data
+
+```{r}
+t <- get(load(file = "results/TCRb.RData"))
+```
+
+
+```{r}
+u <- aggregate(templates~bio_identity_key+tissue+patient_id+patient_id_num+cdr3_amino_acid+vdjdb_MDA+vdjdb_CTA, 
+               data = t, FUN = sum)
+
+n <- aggregate(templates~tissue+patient_id, data = t, FUN = sum)
+n$depth <- n$templates
+n$templates <- NULL
+
+u <- merge(x = u, y = n, by = c("patient_id", "tissue"), all.x = TRUE)
+u$p <- u$templates/u$depth
+
+u$MDA <- ifelse(test = u$vdjdb_MDA== 1, yes = "MDA", no = "non-MDA")
+u$CTA <- ifelse(test = u$vdjdb_CTA== 1, yes = "CTA", no = "non-CTA")
+```
+
+
+
+```{r}
+mda_cta <- aggregate(p~patient_id_num+tissue+MDA+CTA, data = u, FUN = mean, drop = F)
+mda_cta$p[is.na(mda_cta$p)] <- 0
+
+mda_cta$key <- paste0(mda_cta$MDA, "|", mda_cta$CTA)
+mda_cta$key[mda_cta$key == "MDA|non-CTA"] <- "MDA+"
+mda_cta$key[mda_cta$key == "MDA|CTA"] <- "MDA+"
+mda_cta$key[mda_cta$key == "non-MDA|CTA"] <- "CTA+"
+mda_cta$key[mda_cta$key == "non-MDA|non-CTA"] <- "MDA-/CTA-"
+mda_cta <- mda_cta[mda_cta$key %in% c("MDA+", "CTA+", "MDA-/CTA-"), ]
+mda_cta$key <- factor(x = mda_cta$key, levels = c("MDA+", "CTA+", "MDA-/CTA-"))
+```
+
+
+```{r}
+g_avg_size <- ggplot()+
+  geom_sina(data = u, 
+            aes(x = tissue, y = p*100, fill = key), col = "white", shape = 21, 
+            size = 1.5, alpha = 0.6)+
+  scale_fill_manual(name = '', values = c("MDA+"="red", "CTA+"="purple", "MDA-/CTA-"="forestgreen"))+
+  ylab(label = "Mean expansion [%]")+
+  xlab(label = '')+
+  theme(legend.position = c(0.8, 0.75))+
+  ylim(c(0, 0.06))
+```
+
+
+
+```{r, fig.width=4, fig.height=3}
+g_avg_size <- ggplot()+
+  geom_sina(data = mda_cta, 
+            aes(x = tissue, y = p*100, fill = key), col = "white", shape = 21, 
+            size = 1.5, alpha = 0.6)+
+  scale_fill_manual(name = '', values = c("MDA+"="red", "CTA+"="purple", "MDA-/CTA-"="forestgreen"))+
+  ylab(label = "Mean expansion [%]")+
+  xlab(label = '')+
+  theme(legend.position = c(0.8, 0.75))+
+  ylim(c(0, 0.06))+
+  scale_y_log10(oob = scales::oob_squish_infinite)+
+  annotation_logticks(base = 10, sides = "l")
+```
+
+```{r}
+u$clones <- 1
+f <- aggregate(clones~tissue+patient_id_num+MDA+CTA, data = u, FUN = sum, drop = FALSE)
+colnames(f) <- c("tissue", "patient_id_num", "MDA", "CTA", "clones")
+f$clones[is.na(f$clones)] <- 0
+
+n <- aggregate(clones~patient_id_num+tissue, data = f, FUN = sum)
+n$depth <- n$clones
+n$clones <- NULL
+
+f <- merge(x = f, y = n, by = c("patient_id_num", "tissue"), all.x = TRUE)
+f$p <- f$clones/f$depth
+rm(n)
+
+f$key <- paste0(f$MDA, "|", f$CTA)
+f$key[f$key == "MDA|non-CTA"] <- "MDA+"
+f$key[f$key == "MDA|CTA"] <- "MDA+"
+f$key[f$key == "non-MDA|CTA"] <- "CTA+"
+f$key[f$key == "non-MDA|non-CTA"] <- "MDA-/CTA-"
+f <- f[f$key %in% c("MDA+", "CTA+", "MDA-/CTA-"), ]
+f$key <- factor(x = f$key, levels = c("MDA+", "CTA+", "MDA-/CTA-"))
+```
+
+
+```{r, fig.width=4, fig.height=3}
+g_clones_prop <- ggplot(data = f[f$key %in% c("MDA+", "CTA+"),])+
+  geom_sina(aes(x = tissue, y = p*100, fill = key), shape = 21, 
+            col = "white", size = 1.5, alpha = 0.6)+
+  ylab(label = "MDA+/CTA+ clones [%]")+
+  xlab(label = '')+
+  scale_fill_manual(name = '', values = c("MDA+"="red", "CTA+"="purple"))+
+  theme(legend.position = c(0.8, 0.75))+
+  scale_y_log10(oob = scales::oob_squish_infinite)+
+  annotation_logticks(base = 10, sides = "l")
+g_clones_prop
+```
+
+
+```{r}
+f <- aggregate(templates~tissue+patient_id_num+MDA+CTA, data = u, FUN = sum, drop = FALSE)
+colnames(f) <- c("tissue", "patient_id_num", "MDA", "CTA", "cells")
+f$cells[is.na(f$cells)] <- 0
+
+n <- aggregate(cells~patient_id_num+tissue, data = f, FUN = sum)
+n$depth <- n$cells
+n$cells <- NULL
+
+f <- merge(x = f, y = n, by = c("patient_id_num", "tissue"), all.x = TRUE)
+f$p <- f$cells/f$depth
+rm(n)
+
+f$key <- paste0(f$MDA, "|", f$CTA)
+f$key[f$key == "MDA|non-CTA"] <- "MDA+"
+f$key[f$key == "MDA|CTA"] <- "MDA+"
+f$key[f$key == "non-MDA|CTA"] <- "CTA+"
+f$key[f$key == "non-MDA|non-CTA"] <- "MDA-/CTA-"
+f <- f[f$key %in% c("MDA+", "CTA+", "MDA-/CTA-"), ]
+f$key <- factor(x = f$key, levels = c("MDA+", "CTA+", "MDA-/CTA-"))
+```
+
+
+```{r, fig.width=4, fig.height=3}
+g_cells_prop <- ggplot(data = f[f$key %in% c("MDA+", "CTA+"),])+
+  geom_sina(aes(x = tissue, y = p*100, fill = key), shape = 21, 
+            col = "white", size = 1.5, alpha = 0.6)+
+  ylab(label = "MDA+/CTA+ cells [%]")+
+  xlab(label = '')+
+  scale_fill_manual(name = '', values = c("MDA+"="red", "CTA+"="purple"))+
+  theme(legend.position = c(0.8, 0.75))+
+  scale_y_log10(oob = scales::oob_squish_infinite)+
+  annotation_logticks(base = 10, sides = "l")
+g_cells_prop
+```
+
+
+
+```{r, fig.width=6, fig.height=2.3}
+g_top <- (g_avg_size|g_clones_prop|g_cells_prop)
+g_top
+```
+
+
+# Paired-clone analysis
+
+```{r}
+rm(g, f, mda_cta)
+```
+
+
+```{r}
+u <- t
+n <- aggregate(templates~patient_id+tissue, data = t, FUN = sum)
+n$depth <- n$templates
+n$templates <- NULL
+
+u <- u[u$vdjdb_MDA == 1 | u$vdjdb_CTA == 1, ]
+u <- merge(x = u, y = n, by = c("patient_id", "tissue"), all.x = TRUE) 
+u$p <- u$templates/u$depth
+
+u_pt <- u[u$tissue == "PT", c("bio_identity_key", "bio_identity", "patient_id", 
+                              "patient_id_num", "cdr3_amino_acid", "templates", "p")]
+u_pt$tissue <- NULL
+u_pt$depth <- NULL
+u_pt <- aggregate(p~bio_identity_key+bio_identity+patient_id+patient_id_num, 
+                  data = u_pt, FUN = sum)
+
+
+u_sln <- u[u$tissue == "SLN", c("bio_identity_key", "bio_identity", "patient_id", 
+                                "patient_id_num", "cdr3_amino_acid",  "templates", "p")]
+u_sln$tissue <- NULL
+u_sln$depth <- NULL
+u_sln <- aggregate(p~bio_identity_key+bio_identity+patient_id+patient_id_num, 
+                   data = u_sln, FUN = sum)
+
+
+z <- merge(x = u_pt, y = u_sln, by = c("bio_identity_key", "bio_identity", "patient_id", 
+                                       "patient_id_num"), all = TRUE)
+
+z$p.x[is.na(z$p.x)] <- 0
+z$p.y[is.na(z$p.y)] <- 0
+
+zm <- z[, c("bio_identity", "patient_id", "patient_id_num")]
+zm <- zm[duplicated(zm)==FALSE, ]
+zm$nr_pts <- 1
+zm <- aggregate(nr_pts~bio_identity, data = zm, FUN = sum)
+
+z <- merge(x = z, y = zm, all.x = TRUE, by = "bio_identity")
+
+
+x <- do.call(rbind, strsplit(x = z$bio_identity, split = "\\+"))
+z$cdr3b <- x[,1]
+z$Vb <- x[,2]
+z$Jb <- x[,3]
+rm(x)
+
+
+rm(u_sln, u_pt, zm)
+```
+
+
+```{r, fig.width=3, fig.height=3.5}
+min_val <- c(z$p.x, z$p.y)
+min_val <- min(min_val[min_val!=0])
+
+max_val <- c(z$p.x, z$p.y)
+max_val <- max(max_val[max_val!=0])
+```
+
+# Supplement
+
+```{r, fig.width=5, fig.height=3.5}
+g_sharing <- ggplot()+
+  geom_point(data = z,
+             aes(x = p.x*100, y = p.y*100))+
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", col = "darkgray")+
+  scale_x_log10(limits = c(min_val*100, max_val*100))+
+  scale_y_log10(limits = c(min_val*100, max_val*100))+
+  annotation_logticks(base = 10, sides = "lb", 
+                      short = unit(0.05, "cm"),
+                      mid = unit(0.1, "cm"),
+                      long = unit(0.2, "cm"))+
+  xlab(label = "Clonal expansion in PT [%]")+
+  ylab(label = "Clonal expansion in SLN [%]")+
+  theme(legend.position = "top")+
+  coord_equal()
+```
+
+
+# Fig bottom
+
+```{r, fig.width=2, fig.height=2}
+freq <- data.frame(table(z$bio_identity))
+freq <- data.frame(table(freq$Freq))
+colnames(freq) <- c("count", "sharing")
+
+freq$count_num <- as.numeric(as.character(freq$count))
+g_freq_share <- ggplot(data = freq)+
+  geom_col(aes(x = count_num, y = sharing+0.01))+
+  scale_y_log10("Clonotypes")+
+  scale_x_continuous(name = "Sharing")+
+  annotation_logticks(base = 10, sides = "l")
+```
+
+
+
+```{r}
+u <- t
+u <- u[u$vdjdb_MDA == 1 | u$vdjdb_CTA == 1, ]
+
+n <- aggregate(templates~patient_id+tissue, data = t, FUN = sum)
+n$depth <- n$templates
+n$templates <- NULL
+
+u <- merge(x = u, y = n, by = c("patient_id", "tissue"), all.x = TRUE) 
+
+u <- u[u$vdjdb_MDA == 1 | u$vdjdb_CTA == 1, ]
+u <- u[,c("vdjdb_MDA", "vdjdb_CTA", "patient_id_num", "patient_id", 
+          "bio_identity", "bio_identity_key", "tissue", "depth", 
+          "templates")]
+
+x <- do.call(rbind, strsplit(x = u$bio_identity, split = "\\+"))
+u$cdr3b <- x[,1]
+u$Vb <- x[,2]
+u$Jb <- x[,3]
+rm(x, n)
+```
+
+```{r}
+n <- aggregate(templates~patient_id+tissue, data = t, FUN = sum)
+n$depth <- n$templates
+n$templates <- NULL
+
+m <- rstan::stan_model(file = "model/model_clone_prop.stan")
+
+glm_data <- c()
+glm_stats <- c()
+for(g in unique(u$bio_identity)) {
+  d <- u[u$bio_identity == g, c("templates", "tissue", "patient_id")]
+  d <- d %>% complete(patient_id, tissue)
+  d$templates[is.na(d$templates)] <- 0
+  d <- merge(x = d, y = n, by = c("patient_id", "tissue"), all.x = TRUE) 
+  d$x <- ifelse(test = d$tissue == "PT", yes = 1, no = -1) 
+  d$pt <- as.numeric(as.factor(d$patient_id))
+  d <- aggregate(templates~depth+x+pt+tissue+patient_id, data = d, FUN = sum)
+  d$bio_identity <- g
+  if(max(d$pt)>=5) {
+    f <- rstan::sampling(object = m, data = list(N = nrow(d),
+                                                 y = d$templates,
+                                                 n = d$depth,
+                                                 x = d$x,
+                                                 pt = d$pt),
+                         control = list(adapt_delta = 0.99),
+                         chains = 4, 
+                         iter = 3000, 
+                         warmup = 1000, 
+                         refresh = -1)
+    sf <- data.frame(summary(f, par = "beta_mu")$summary)
+    sf$bio_identity <- g
+    
+    glm_stats <- rbind(glm_stats, sf)
+    glm_data <- rbind(glm_data, d)
+  }
+}
+rm(f, sf, n, d, m)
+```
+
+
+```{r}
+q <- glm_data[glm_data$bio_identity %in% c("CASSIRSSYEQYF+TCRBV19-01+TCRBJ02-07", 
+                             "CASSLGQAYEQYF+TCRBV07-08+TCRBJ02-07"),]
+q$title <- gsub(pattern = "\\+V", replacement = "\n", 
+                x = gsub(pattern = "TCRB", replacement = '', x = q$bio_identity))
+```
+
+```{r}
+meta <- get(load("/mnt/nfs/simo/AIRR/TCR_PT_SLN/extra_data/data_Nalini/meta.RData"))
+meta <- meta$info
+meta <- meta[meta$feature == "HLA-A",]
+meta$HLA_01 <- ifelse(test = regexpr(pattern = "A\\*01", text = meta$value)!=-1, yes = T, no = F)
+meta$HLA_02 <- ifelse(test = regexpr(pattern = "A\\*02", text = meta$value)!=-1, yes = T, no = F)
+meta$HLA_24 <- ifelse(test = regexpr(pattern = "A\\*24", text = meta$value)!=-1, yes = T, no = F)
+meta$HLA_03 <- ifelse(test = regexpr(pattern = "A\\*03", text = meta$value)!=-1, yes = T, no = F)
+q <- merge(x = q, y = meta, by.x = "patient_id", by.y = "patient")
+
+meta <- get(load("/mnt/nfs/simo/AIRR/TCR_PT_SLN/extra_data/data_Nalini/meta.RData"))
+meta <- meta$info
+meta <- meta[meta$feature == "HLA-B",]
+meta$HLA_44 <- ifelse(test = regexpr(pattern = "B\\*44", text = meta$value)!=-1, yes = T, no = F)
+q <- merge(x = q, y = meta, by.x = "patient_id", by.y = "patient")
+```
+
+
+
+```{r, fig.width=3, fig.height=2}
+pos <- position_jitter(width = 0.05, height = 0)
+g_clones_1 <- ggplot(data = q[q$bio_identity == "CASSIRSSYEQYF+TCRBV19-01+TCRBJ02-07",], 
+                      aes(x = tissue, y = templates/depth*100, group = patient_id, col = HLA_02))+
+  facet_wrap(facets = ~title, scales = "free", nrow = 1)+
+  geom_line(col = "darkgray", position = pos)+
+  geom_point(size = 1.2, shape = 21, fill = "white", position = pos)+
+  ylab(label = "Clonal expansion [%]")+
+  xlab(label = '')+
+  theme_bw(base_size = 10)+
+  theme(strip.text.x = element_text(size = 7, margin = margin(0.05,0,0.05,0, "cm")))+
+  theme(legend.position = "none")+
+  scale_y_log10(oob = scales::oob_squish_infinite)+
+  annotation_logticks(base = 10, sides = "l")
+
+g_clones_2 <- ggplot(data = q[q$bio_identity == "CASSLGQAYEQYF+TCRBV07-08+TCRBJ02-07",], 
+                      aes(x = tissue, y = templates/depth*100, group = patient_id, col = HLA_44))+
+  facet_wrap(facets = ~title, scales = "free", nrow = 1)+
+  geom_line(col = "darkgray", position = pos)+
+  geom_point(size = 1.2, shape = 21, fill = "white", position = pos)+
+  ylab(label = "Clonal expansion [%]")+
+  xlab(label = '')+
+  theme_bw(base_size = 10)+
+  theme(strip.text.x = element_text(size = 7, margin = margin(0.05,0,0.05,0, "cm")))+
+  theme(legend.position = "none")+
+  scale_y_log10(oob = scales::oob_squish_infinite)+
+  annotation_logticks(base = 10, sides = "l")
+
+g_clones_pt <- g_clones_1|g_clones_2
+```
+
+
+```{r, fig.width=7, fig.height=7}
+g_bottom <- (g_freq_share|g_clones_pt)+patchwork::plot_layout(widths = c(1, 2))
+```
+
+```{r, fig.width=6, fig.height=4}
+g <- (g_top/g_bottom)
+g
+```
+
+
+
+```{r}
+ggsave(filename = "manuscript_fig/Main_Figure_Clones.pdf",
+       plot = g,
+       device = "pdf",
+       width = 6,
+       height = 4)
+```
+
+
+

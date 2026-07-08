@@ -1,0 +1,346 @@
+---
+title: "Fig 7 + Supplementary_ps_graph"
+author: "SK"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    highlight: kate
+editor_options: 
+  markdown: 
+    wrap: 65
+---
+
+```{r}
+.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
+source("/mnt/nfs/simo/r_utils/Stats.R")
+
+library(dplyr)
+library(ggplot2)
+library(ggforce)
+library(ggrepel)
+library(patchwork)
+library(ClustIRR)
+library(igraph)
+library(visNetwork)
+library(ggnetwork)
+library(gglogo)
+library(Biostrings)
+ggplot2::theme_set(new = theme_bw(base_size = 10))
+```
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+```
+
+
+# Get data
+
+```{r}
+dc_light <- get(load(file = "results/clustirr_90/dc_light.RData"))
+ns <- dc_light$ns
+
+ns$MDA <- ifelse(ns$vdjdb_MDA==1, yes = "MDA", "non-MDA")
+ns$CTA <- ifelse(ns$vdjdb_CTA==1, yes = "CTA", "non-CTA")
+ns$key <- paste0(ns$patient_id, '-', ns$community)
+ns$key_sel <- paste0(ns$community, '|', ns$patient_id_num)
+```
+
+
+```{r}
+graph <- get(load("results/clustirr_90/graph.RData"))
+V(graph)$key_sel <- paste0(V(graph)$community, '|', V(graph)$patient_id_num)
+```
+
+
+```{r}
+# deltas + epsilons
+ds <- do.call(rbind, lapply(X = list.files(path = "results/clustirr_90/dco/", 
+                                           pattern = "ps\\_", full.names = T), 
+                             FUN = function(x) {
+  o <- get(load(file = x))
+  
+  y <- o$delta
+  y <- y[which(y$sample_1==y$sample_1[1] & y$sample_2 == y$sample_2[1]), ]
+  colnames(y)[3:9] <- paste0("delta_", colnames(y)[3:9])
+  y$k <- NULL
+  
+  e <- o$epsilon
+  e <- e[which(e$sample_1==e$sample_1[1] & e$sample_2 == e$sample_2[1]), ]
+  colnames(e)[3:9] <- paste0("epsilon_", colnames(e)[3:9])
+  e$k <- NULL
+  
+  y <- merge(x = y, y = e, by = c("community", "sample_1", "sample_2", "contrast"))
+  y <- y[order(y$community, decreasing = F), ]
+  
+  cs <- get(load(file = gsub(pattern = "ps_", replacement = 'cs_', x = x)))
+  y$community_true <- as.numeric(rownames(cs))
+  
+  return(y)
+}))
+
+ds <- ds[which(regexpr(pattern = "PT", text = ds$contrast, ignore.case = FALSE)!=-1),]
+
+tm <- ns[,c("sample", "patient_id", "patient_id_num")]
+tm <- tm[duplicated(tm)==FALSE,]
+ds <- merge(x = ds, y = tm, by.x = "sample_1", by.y = "sample", all.x = TRUE)
+rm(tm)
+
+ds$key <- paste0(ds$patient_id, '-', ds$community_true)
+
+ds$hit <- '-'
+ds$hit[ds$key %in% ns$key[ns$MDA=="MDA"]] <- "MDA"
+ds$hit[ds$key %in% ns$key[ns$CTA=="CTA"]] <- "CTA"
+ds$hit[ds$key %in% ns$key[ns$MDA=="MDA"] & ds$key %in% ns$key[ns$CTA=="CTA"]] <- "MDA/CTA"
+ds$key_sel <- paste0(ds$community_true, '|', ds$patient_id_num)
+```
+
+
+```{r, fig.width=3, fig.height=3}
+ds_sel <- ds[ds$epsilon_pmax >= 0.99,]
+```
+
+
+```{r}
+# ds_sel <- ds_sel[ds_sel$epsilon_mean>0.08,]
+ps <- c("105945|18", "418809|5", "58662|13", "119538|13", "35776|15")
+ds_sel <- ds_sel[ds_sel$key_sel %in% ps,]
+
+depth <- aggregate(clone_size~sample_name, data = ns, FUN = sum)
+colnames(depth) <- c("sample_name", "depth")
+ns <- merge(x = ns, y = depth, by = "sample_name", all.x = TRUE)
+rm(depth)
+ns <- ns[ns$key_sel %in% ps,]
+```
+
+
+```{r, fig.width=3, fig.height=3}
+ds_sel$label <- NA
+for(i in 1:length(ps)) {
+  ds_sel$label[ds_sel$key_sel==ps[i]] <- paste0("p",i)
+}
+ds_sel <- ds_sel[order(ds_sel$label),]
+```
+
+
+# Logos
+
+```{r}
+logos <- lapply(X = ds_sel$community_true, node_summary = ns, FUN = get_cdr3_motifs)
+```
+
+```{r, fig.width=3.3, fig.height=5}
+fig_7_logo <- patchwork::wrap_plots(logos, ncol = 1)
+
+rm(logos)
+
+fig_7_logo
+```
+
+
+```{r}
+ggsave(filename = "manuscript_fig/Fig_7_logos.pdf",
+       plot = fig_7_logo,
+       device = "pdf",
+       width = 3,
+       height = 4)
+```
+
+
+
+```{r, fig.width=1.5, fig.height=5.5}
+f <- c()
+for(i in 1:length(ps)) {
+  f <- rbind(f, rbind(data.frame(key = ps[i], 
+                                 y = sum(ns$clone_size[ns$key_sel == ps[i] & ns$tissue == "PT"]),
+                                 n = ns$depth[ns$key_sel == ps[i] & ns$tissue == "PT"][1],
+                                 tissue = "PT",
+                                 community = paste0("p", i)),
+                      data.frame(key = ps[i], 
+                                 y = sum(ns$clone_size[ns$key_sel == ps[i] & ns$tissue == "SLN"]),
+                                 n = ns$depth[ns$key_sel == ps[i] & ns$tissue == "SLN"][1],
+                                 tissue = "SLN",
+                                 community = paste0("p", i))))
+}
+rm(i)
+f$p <- f$y/f$n
+f$p[is.na(f$p)] <- 0
+
+
+fig_7_D <- ggplot(data = f, aes(x = tissue, y = p*100, group = community))+
+  facet_wrap(~community, ncol = 1, scale = "free")+
+  geom_line(col = "gray", alpha = 0.7)+
+  geom_point(shape = 21, size = 1)+
+  theme(strip.text = element_text(size = 9, margin = margin()))+
+  scale_y_continuous(name = "DCJ expansion [%]", 
+                     breaks = scales::pretty_breaks(n=3))+
+  scale_x_discrete(expand = c(0.1, 0.1))
+
+fig_7_D
+rm(i)
+```
+
+
+```{r}
+ggsave(filename = "manuscript_fig/Fig_7_D.pdf",
+       plot = fig_7_D,
+       device = "pdf",
+       width = 1,
+       height = 4.2)
+```
+
+
+
+# Feature stats
+
+```{r}
+ps_com <- ds_sel$community_true
+for(i in 1:length(ps_com)) {
+  ov <- ClustIRR::get_community_feature_stats(node_summary = ns, node_feature = "v_gene", community_id = ps_com[i])
+  oj <- ClustIRR::get_community_feature_stats(node_summary = ns, node_feature = "j_gene", community_id = ps_com[i])
+  cat(paste0(gsub(pattern = "TCRB", replacement = '', x = ov$feature[1]), " ", 
+         round(ov$feature_prop[1]*100, digits = 1), "%, ",
+         gsub(pattern = "TCRB", replacement = '', x = oj$feature[1]), " ", 
+         round(oj$feature_prop[1]*100, digits = 1), "%"), "\n")
+}
+```
+
+
+```{r}
+is <- which(V(graph)$key_sel %in% ds$key_sel[ds$key_sel %in% ps & ds$epsilon_pmax >= 0.99])
+sg <- subgraph(graph = graph, vids = is)
+rm(is)
+```
+
+
+
+```{r}
+es <- igraph::as_data_frame(x = sg, what = "edges")
+es$i <- 1:nrow(es)
+vs <- igraph::as_data_frame(x = sg, what = "vertices")
+es <- merge(x = es, y = vs[,c("name", "community")], 
+            by.x = "from", by.y = "name", all.x = TRUE)
+es <- merge(x = es, y = vs[,c("name", "community")], 
+            by.x = "to", by.y = "name", all.x = TRUE)
+es <- es[order(es$i, decreasing = F),]
+is <- which(es$community.x!=es$community.y)
+es$community <- es$community.x
+sg <- igraph::delete_edges(graph = sg, edges = es$i[is])
+rm(is, es, vs)
+```
+
+
+```{r}
+u <- ggnetwork(sg, layout = igraph::layout_components(sg))
+u <- merge(x = u, y = ns[duplicated(ns$sample_name)==F, c("sample_name", "depth")], by = "sample_name", all.x = TRUE)
+
+u$key <-  ifelse(test = u$vdjdb_MDA==1|u$vdjdb_CTA==1, yes = "MDA/CTA", no = "-")
+u <- u[order(u$clone_size/u$depth, decreasing = T),]
+lu <- u[u$key == "MDA/CTA" & duplicated(u$name)==F, ]
+
+u <- u[order(u$clone_size/u$depth, decreasing = T),]
+tu <- u[duplicated(u$key_sel)==F,]
+
+u$MDACTA <-  ifelse(test = u$vdjdb_MDA==1|u$vdjdb_CTA==1, yes = "MDA/CTA", no = "non-MDA/CTA")
+u$CMV <- ifelse(test = regexpr(pattern = "CMV", text = u$Ag_species)!=-1, yes = "CMV", no = "non-CMV")
+u$EBV <- ifelse(test = regexpr(pattern = "EBV", text = u$Ag_species)!=-1, yes = "EBV", no = "non-EBV")
+```
+
+
+```{r, fig.width=15, fig.height=15}
+g <- ggplot(data = u, aes(x = x, y = y, xend = xend, yend = yend))+
+  geom_edges(color = "darkgrey", linewidth = 0.05, alpha = 0.5)+
+  geom_nodes(aes(size = clone_size/depth*100, col = tissue, 
+                 shape = key), stroke = 0.1, alpha = 0.85)+
+  geom_text(data = tu,
+                  aes(x = x, y = y, label = patient_id_num), size = 2.25)+
+  geom_text_repel(data = lu[duplicated(lu$cdr3_amino_acid)==F,],
+                  aes(x = x, y = y, label = CDR3b), size = 2.25, max.overlaps = 10000,
+                  min.segment.length = 0, max.iter = 10^6, col = "red")+
+  scale_radius(name = "%", trans = "log10", range = c(0.75, 5))+
+  theme_facet(legend.position = "right",
+              strip.text.x = element_text(margin = margin(0.05,0,0.05,0, "cm")))+
+    scale_color_manual(values = c("#3182bd", "orange"))+
+  scale_shape_manual(name = "Ag", values = c("-" = "circle", "MDA/CTA"="square"))
+```
+
+
+```{r, fig.width=8, fig.height=8}
+g
+```
+
+
+```{r}
+ggsave(filename = "manuscript_fig/Fig_7A.pdf",
+       plot = g,
+       device = "pdf",
+       width = 5,
+       height = 4)
+```
+
+
+
+
+
+# Supplementary graph with MDA/CTA, CMV, EBV
+
+```{r, fig.width=13, fig.height=4}
+tu$com_ID <- NA
+for(i in 1:length(ps)) {
+  tu$com_ID[tu$key_sel == ps[i]] <- paste0("p",i)
+}
+rm(i)
+
+g_sup <- 
+  (ggplot(data = u, aes(x = x, y = y, xend = xend, yend = yend))+
+     geom_edges(color = "darkgrey", linewidth = 0.05, alpha = 0.5)+
+     geom_nodes(aes(size = clone_size/depth*100, col = MDACTA), stroke = 0.1, alpha = 0.85)+
+     geom_text_repel(data = tu[duplicated(tu$community)==F,],
+                     aes(size = clone_size/depth*100, label = com_ID), col = "black",
+                     min.segment.length = 0, size = 4)+
+     scale_radius(name = "%", trans = "log10", range = c(0.75, 5))+
+     theme_facet(legend.position = "right",
+                 strip.text.x = element_text(margin = margin(0.05,0,0.05,0, "cm")))+
+     scale_color_manual(values = c("black", "red")))|
+  (ggplot(data = u, aes(x = x, y = y, xend = xend, yend = yend))+
+     geom_edges(color = "darkgrey", linewidth = 0.05, alpha = 0.5)+
+     geom_nodes(aes(size = clone_size/depth*100, col = CMV), stroke = 0.1, alpha = 0.85)+
+     geom_text_repel(data = tu[duplicated(tu$community)==F,],
+                     aes(size = clone_size/depth*100, label = com_ID), col = "black",
+                     min.segment.length = 0, size = 4)+
+     scale_radius(name = "%", trans = "log10", range = c(0.75, 5))+
+     theme_facet(legend.position = "right",
+                 strip.text.x = element_text(margin = margin(0.05,0,0.05,0, "cm")))+
+     scale_color_manual(values = c("black", "red")))|
+  (ggplot(data = u, aes(x = x, y = y, xend = xend, yend = yend))+
+     geom_edges(color = "darkgrey", linewidth = 0.05, alpha = 0.5)+
+     geom_nodes(aes(size = clone_size/depth*100, col = EBV), stroke = 0.1, alpha = 0.85)+
+     geom_text_repel(data = tu[duplicated(tu$community)==F,],
+                     aes(size = clone_size/depth*100, label = com_ID), col = "black",
+                     min.segment.length = 0, size = 4)+
+     scale_radius(name = "%", trans = "log10", range = c(0.75, 5))+
+     theme_facet(legend.position = "right",
+                 strip.text.x = element_text(margin = margin(0.05,0,0.05,0, "cm")))+
+     scale_color_manual(values = c("black", "red")))
+```
+
+
+```{r, fig.width=14, fig.height=4}
+g_sup
+```
+
+```{r}
+ggsave(filename = "manuscript_fig/Supplementary_ps_graph.pdf",
+       plot = g_sup,
+       device = "pdf",
+       width = 14,
+       height = 4)
+```
+
+
+
+
+
+
+
+
+

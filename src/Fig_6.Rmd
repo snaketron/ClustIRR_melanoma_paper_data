@@ -1,0 +1,468 @@
+---
+title: "Fig 6 + Supplementary_rs_graph"
+author: "SK"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    highlight: kate
+editor_options: 
+  markdown: 
+    wrap: 65
+---
+
+```{r}
+.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
+source("/mnt/nfs/simo/r_utils/Stats.R")
+
+library(dplyr)
+library(ggplot2)
+library(ggforce)
+library(ggrepel)
+library(patchwork)
+library(ClustIRR)
+library(igraph)
+library(visNetwork)
+library(ggnetwork)
+library(gglogo)
+library(Biostrings)
+ggplot2::theme_set(new = theme_bw(base_size = 10))
+```
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+```
+
+
+# Get data
+
+```{r}
+dc_light <- get(load(file = "results/clustirr_90/dc_light.RData"))
+ns <- dc_light$ns
+
+ns$MDA <- ifelse(ns$vdjdb_MDA==1, yes = "MDA", "non-MDA")
+ns$CTA <- ifelse(ns$vdjdb_CTA==1, yes = "CTA", "non-CTA")
+ns$key <- paste0(ns$patient_id, '-', ns$community)
+ns$key_sel <- paste0(ns$community, '|', ns$patient_id_num)
+```
+
+
+```{r}
+graph <- get(load("results/clustirr_90/graph.RData"))
+V(graph)$key_sel <- paste0(V(graph)$community, '|', V(graph)$patient_id_num)
+```
+
+
+```{r}
+# deltas + epsilons
+ds <- do.call(rbind, lapply(X = list.files(path = "results/clustirr_90/dco/", 
+                                           pattern = "ps\\_", full.names = T), 
+                             FUN = function(x) {
+  o <- get(load(file = x))
+  
+  y <- o$delta
+  y <- y[which(y$sample_1==y$sample_1[1] & y$sample_2 == y$sample_2[1]), ]
+  colnames(y)[3:9] <- paste0("delta_", colnames(y)[3:9])
+  y$k <- NULL
+  
+  e <- o$epsilon
+  e <- e[which(e$sample_1==e$sample_1[1] & e$sample_2 == e$sample_2[1]), ]
+  colnames(e)[3:9] <- paste0("epsilon_", colnames(e)[3:9])
+  e$k <- NULL
+  
+  y <- merge(x = y, y = e, by = c("community", "sample_1", "sample_2", "contrast"))
+  y <- y[order(y$community, decreasing = F), ]
+  
+  cs <- get(load(file = gsub(pattern = "ps_", replacement = 'cs_', x = x)))
+  y$community_true <- as.numeric(rownames(cs))
+  
+  return(y)
+}))
+
+ds <- ds[which(regexpr(pattern = "PT", text = ds$contrast, ignore.case = FALSE)!=-1),]
+
+tm <- ns[,c("sample", "patient_id", "patient_id_num")]
+tm <- tm[duplicated(tm)==FALSE,]
+ds <- merge(x = ds, y = tm, by.x = "sample_1", by.y = "sample", all.x = TRUE)
+rm(tm)
+
+ds$key <- paste0(ds$patient_id, '-', ds$community_true)
+
+ds$hit <- '-'
+ds$hit[ds$key %in% ns$key[ns$MDA=="MDA"]] <- "MDA"
+ds$hit[ds$key %in% ns$key[ns$CTA=="CTA"]] <- "CTA"
+ds$hit[ds$key %in% ns$key[ns$MDA=="MDA"] & ds$key %in% ns$key[ns$CTA=="CTA"]] <- "MDA/CTA"
+ds$key_sel <- paste0(ds$community_true, '|', ds$patient_id_num)
+```
+
+
+# How often do we find DACs with pi>=0.99
+
+```{r}
+length(which(ds$epsilon_pmax>=0.99))
+length(unique(ds$community_true[which(ds$epsilon_pmax>=0.99)]))
+length(which(ds$epsilon_mean>0 & ds$epsilon_pmax>=0.99))
+length(which(ds$epsilon_mean<0 & ds$epsilon_pmax>=0.99))
+length(unique(ds$community_true[which(ds$epsilon_pmax>=0.99 & ds$hit != "-")]))
+length(unique(ds$community_true[which(ds$epsilon_mean>0 & ds$epsilon_pmax>=0.99 & ds$hit != "-")]))
+length(unique(ds$community_true[which(ds$epsilon_mean<0 & ds$epsilon_pmax>=0.99 & ds$hit != "-")]))
+length(unique(ds$community_true[which((ds$epsilon_mean>0 & ds$epsilon_pmax>=0.99 & ds$hit != "-")|
+                                  (ds$epsilon_mean<0 & ds$epsilon_pmax>=0.99 & ds$hit != "-"))]))
+```
+
+
+# Frequency of DACs per community
+
+```{r, fig.width=3, fig.height=2}
+f <- data.frame(table(table(ds$community_true[ds$epsilon_pmax>=0.99])))
+colnames(f) <- c("count", "sharing")
+f$count_num <- as.numeric(as.character(f$count))
+f$p <- f$sharing/sum(f$sharing)
+g_freq_share <- ggplot(data = f)+
+  geom_col(aes(x = count_num, y = sharing+0.2))+
+  scale_y_log10("Clonotypes")+
+  scale_x_continuous(name = "Sharing")+
+  annotation_logticks(base = 10, sides = "l")
+
+g_freq_share
+rm(f)
+```
+
+```{r, fig.width=3, fig.height=3}
+ds_sel <- ds[ds$epsilon_pmax >= 0.99,]
+
+ds_sel <- data.frame(table(ds_sel$community_true, ds_sel$epsilon_mean>0))
+colnames(ds_sel) <- c("community_true", "dir", "freq")
+ds_sel <- merge(x = ds_sel[ds_sel$dir == T, c("community_true", "freq")], 
+                y = ds_sel[ds_sel$dir == F,], by = "community_true")
+
+h <- ds[ds$epsilon_pmax >= 0.99 & ds$hit != "-", ]
+ds_sel$hit <- ifelse(test = ds_sel$community_true %in% unique(h$community_true), 
+                     yes = "MDA", no = "-")
+ds_sel <- ds_sel[order(ds_sel$hit),]
+rm(h)
+```
+
+
+```{r, fig.width=3, fig.height=3}
+# recurrent coms selected
+rs <- c(20665, 40231, 22077, 35, 6995, 7730, 130, 4640)
+```
+
+
+
+```{r}
+# depth
+depth <- aggregate(clone_size~sample_name, data = ns, FUN = sum)
+colnames(depth) <- c("sample_name", "depth")
+ns <- merge(x = ns, y = depth, by = "sample_name", all.x = TRUE)
+rm(depth)
+
+
+ns <- ns[which(ns$key_sel %in% ds$key_sel[ds$community_true %in% rs & ds$epsilon_pmax >= 0.99]),]
+```
+
+
+
+```{r, fig.width=3, fig.height=3}
+ds_sel$label <- NA
+for(i in 1:length(rs)) {
+  ds_sel$label[ds_sel$community_true==rs[i]] <- paste0("r",i)
+}
+```
+
+
+```{r, fig.width=3, fig.height=3}
+g_freq <- ggplot()+
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed")+
+  geom_point(data = ds_sel,
+             aes(x = freq.x, y = freq.y, col = hit),
+             position = position_jitter(width = 0.25, height = 0.3, seed = 123),
+             size = .8, alpha = 0.85, shape = 21)+
+  geom_text_repel(data = ds_sel[is.na(ds_sel$label)==F, ],
+             aes(x = freq.x, y = freq.y, label = label), min.segment.length = 0,
+             position = position_jitter(width = 0.25, height = 0.3, seed = 123),
+             size = 2.5)+
+  scale_x_continuous(name = "PTs", 
+                     breaks = seq(from = 0,
+                                  to = max(c(ds_sel$freq.x, ds_sel$freq.y)),
+                                  by = 2), 
+                     labels = seq(from = 0,
+                                  to = max(c(ds_sel$freq.x, ds_sel$freq.y)),
+                                  by = 2),
+                     limits = c(-0.4,max(c(ds_sel$freq.x, ds_sel$freq.y))+0.4))+
+  scale_y_continuous(name = "SLNs", 
+                     breaks = seq(from = 0,
+                                  to = max(c(ds_sel$freq.x, ds_sel$freq.y)),
+                                  by = 2), 
+                     labels = seq(from = 0,
+                                  to = max(c(ds_sel$freq.x, ds_sel$freq.y)),
+                                  by = 2), 
+                     limits = c(-0.4,max(c(ds_sel$freq.x, ds_sel$freq.y))+0.4))+
+  scale_color_manual(name = "MDA/CTA", values = c("-"="black", "MDA"="red", "CTA"="red"))+
+  theme(legend.position = "none")
+
+g_freq
+rm(g_freq_share, i)
+```
+
+
+
+```{r, fig.width=7, fig.height=4}
+ds_sel <- ds[which(ds$epsilon_pmax>=0.99),]
+ds_sel$hit[ds_sel$hit == "MDA/CTA"] <- "+"
+ds_sel$hit[ds_sel$hit == "MDA"] <- "+"
+
+g_dacs <- ggplot(data = ds_sel)+
+  geom_hline(yintercept = 0, linetype = "dashed")+
+  geom_sina(aes(x = as.character(patient_id_num), y = epsilon_mean, 
+                col = hit, size = hit), shape = 21)+
+  scale_color_manual(name = "MDA/CTA", values = c("-" = "black", "+" = "red"))+
+  scale_size_manual(name = "MDA/CTA", values = c(0.5, 1, 1))+
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        strip.text.x = element_text(margin = margin(0.05,0,0.05,0, "cm")))+
+  ylab(label = expression(epsilon))+
+  xlab(label = '')+
+  scale_x_discrete(breaks = as.character(1:24), labels = as.character(1:24), limits = as.character(1:24))+
+  guides(color = guide_legend(override.aes = list(size = 2.5)))
+```
+
+
+```{r, fig.width=6.5, fig.height=2.35}
+fig_6_ab <- (g_dacs|g_freq)+patchwork::plot_layout(widths = c(1,0.3))
+fig_6_ab
+```
+
+```{r}
+ggsave(filename = "manuscript_fig/Fig_6_AB.pdf",
+       plot = fig_6_ab,
+       device = "pdf",
+       width = 7,
+       height = 2.3)
+```
+
+
+
+# Logos
+
+```{r}
+logos <- lapply(X = rs, node_summary = ns, FUN = get_cdr3_motifs)
+```
+
+```{r, fig.width=3.3, fig.height=6}
+fig_6_logo <- patchwork::wrap_plots(logos, ncol = 1)
+
+rm(logos)
+
+fig_6_logo
+```
+
+
+```{r}
+ggsave(filename = "manuscript_fig/Fig_6_logos.pdf",
+       plot = fig_6_logo,
+       device = "pdf",
+       width = 3,
+       height = 6)
+```
+
+
+
+# Quantify 
+
+
+```{r, fig.width=1.5, fig.height=5.5}
+ns_sel <- aggregate(clone_size~sample_name+patient_id_num+tissue+community+depth, 
+                    data = ns, FUN = sum)
+ns_sel$p <- ns_sel$clone_size/ns_sel$depth
+ns_sel$community <- factor(ns_sel$com, levels = rs)
+ns_sel$com_id <- NA
+
+for(i in 1:length(rs)) {
+  ns_sel$com_id[ns_sel$community == rs[i]] <- paste0("r", i)
+}
+
+pos <- position_jitter(width = 0.1, height = 0)
+
+
+
+fig_6_D <- ggplot(data = ns_sel, aes(x = tissue, y = p*100, group = patient_id_num))+
+  facet_wrap(~com_id, ncol = 1, scale = "free")+
+  geom_line(col = "gray", position = pos, alpha = 0.7)+
+  geom_point(shape = 21, size = 1)+
+  theme(strip.text = element_text(size = 9, margin = margin()))+
+  scale_y_continuous(name = "DCJ expansion [%]", 
+                     breaks = scales::pretty_breaks(n=3))+
+  scale_x_discrete(expand = c(0.1, 0.1))
+
+fig_6_D
+rm(i, pos)
+```
+
+
+
+```{r}
+ggsave(filename = "manuscript_fig/Fig_6_D.pdf",
+       plot = fig_6_D,
+       device = "pdf",
+       width = 1,
+       height = 6)
+```
+
+
+
+
+
+# Feature stats
+
+```{r}
+for(i in 1:length(rs)) {
+  ov <- ClustIRR::get_community_feature_stats(node_summary = ns, node_feature = "v_gene", community_id = rs[i])
+  oj <- ClustIRR::get_community_feature_stats(node_summary = ns, node_feature = "j_gene", community_id = rs[i])
+  cat(paste0(gsub(pattern = "TCRB", replacement = '', x = ov$feature[1]), " ", 
+         round(ov$feature_prop[1]*100, digits = 1), "%, ",
+         gsub(pattern = "TCRB", replacement = '', x = oj$feature[1]), " ", 
+         round(oj$feature_prop[1]*100, digits = 1), "%"), "\n")
+  
+  
+}
+```
+
+
+```{r}
+is <- which(V(graph)$key_sel %in% ds$key_sel[ds$community_true %in% rs & ds$epsilon_pmax >= 0.99])
+sg <- subgraph(graph = graph, vids = is)
+rm(is)
+```
+
+
+```{r}
+# depth
+depth <- aggregate(clone_size~sample_name, data = ns, FUN = sum)
+colnames(depth) <- c("sample_name", "depth")
+```
+
+
+```{r}
+es <- igraph::as_data_frame(x = sg, what = "edges")
+es$i <- 1:nrow(es)
+vs <- igraph::as_data_frame(x = sg, what = "vertices")
+es <- merge(x = es, y = vs[,c("name", "community")], 
+            by.x = "from", by.y = "name", all.x = TRUE)
+es <- merge(x = es, y = vs[,c("name", "community")], 
+            by.x = "to", by.y = "name", all.x = TRUE)
+es <- es[order(es$i, decreasing = F),]
+is <- which(es$community.x!=es$community.y)
+es$community <- es$community.x
+sg <- igraph::delete_edges(graph = sg, edges = es$i[is])
+rm(is, es, vs)
+```
+
+
+```{r}
+u <- ggnetwork(sg, layout = igraph::layout_components(sg))
+u <- merge(x = u, y = depth, by = "sample_name", all.x = TRUE)
+
+u$key <-  ifelse(test = u$vdjdb_MDA==1|u$vdjdb_CTA==1, yes = "MDA/CTA", no = "-")
+u <- u[order(u$clone_size/u$depth, decreasing = T),]
+lu <- u[u$key == "MDA/CTA" & duplicated(u$name)==F, ]
+
+u <- u[order(u$clone_size/u$depth, decreasing = T),]
+tu <- u[duplicated(u$key_sel)==F,]
+
+u$MDACTA <-  ifelse(test = u$vdjdb_MDA==1|u$vdjdb_CTA==1, yes = "MDA/CTA", no = "non-MDA/CTA")
+u$CMV <- ifelse(test = regexpr(pattern = "CMV", text = u$Ag_species)!=-1, yes = "CMV", no = "non-CMV")
+u$EBV <- ifelse(test = regexpr(pattern = "EBV", text = u$Ag_species)!=-1, yes = "EBV", no = "non-EBV")
+```
+
+
+```{r, fig.width=15, fig.height=15}
+g <- ggplot(data = u, aes(x = x, y = y, xend = xend, yend = yend))+
+  geom_edges(color = "darkgrey", linewidth = 0.05, alpha = 0.5)+
+  geom_nodes(aes(size = clone_size/depth*100, col = tissue, 
+                 shape = key), stroke = 0.1, alpha = 0.85)+
+  geom_text(data = tu,
+                  aes(x = x, y = y, label = patient_id_num), 
+                  size = 2.25)+
+  geom_text_repel(data = lu[duplicated(lu$cdr3_amino_acid)==F,],
+                  aes(x = x, y = y, label = as.numeric(as.factor(CDR3b))), size = 2.25, max.overlaps = 10000,
+                  min.segment.length = 0, max.iter = 10^6, col = "red")+
+  scale_radius(name = "%", trans = "log10", range = c(0.75, 5))+
+  theme_facet(legend.position = "right",
+              strip.text.x = element_text(margin = margin(0.05,0,0.05,0, "cm")))+
+    scale_color_manual(values = c("#3182bd", "orange"))+
+  scale_shape_manual(name = "Ag", values = c("-" = "circle", "MDA/CTA"="square"))
+```
+
+
+```{r, fig.width=8, fig.height=8}
+g
+```
+
+
+```{r}
+ggsave(filename = "manuscript_fig/Fig_6_C.pdf",
+       plot = g,
+       device = "pdf",
+       width = 7,
+       height = 7)
+```
+
+
+
+# Supplementary graph with MDA/CTA, CMV, EBV
+
+```{r, fig.width=13, fig.height=4}
+tu$com_ID <- NA
+for(i in 1:length(rs)) {
+  tu$com_ID[tu$community == rs[i]] <- paste0("r",i)
+}
+rm(i)
+
+g_sup <- 
+  (ggplot(data = u, aes(x = x, y = y, xend = xend, yend = yend))+
+     geom_edges(color = "darkgrey", linewidth = 0.05, alpha = 0.5)+
+     geom_nodes(aes(size = clone_size/depth*100, col = MDACTA), stroke = 0.1, alpha = 0.85)+
+     geom_text_repel(data = tu[duplicated(tu$community)==F,],
+                     aes(size = clone_size/depth*100, label = com_ID), col = "purple",
+                     min.segment.length = 0, size = 4)+
+     scale_radius(name = "%", trans = "log10", range = c(0.75, 5))+
+     theme_facet(legend.position = "right",
+                 strip.text.x = element_text(margin = margin(0.05,0,0.05,0, "cm")))+
+     scale_color_manual(values = c("red", "black")))/
+  (ggplot(data = u, aes(x = x, y = y, xend = xend, yend = yend))+
+     geom_edges(color = "darkgrey", linewidth = 0.05, alpha = 0.5)+
+     geom_nodes(aes(size = clone_size/depth*100, col = CMV), stroke = 0.1, alpha = 0.85)+
+     geom_text_repel(data = tu[duplicated(tu$community)==F,],
+                     aes(size = clone_size/depth*100, label = com_ID), col = "purple",
+                     min.segment.length = 0, size = 4)+
+     scale_radius(name = "%", trans = "log10", range = c(0.75, 5))+
+     theme_facet(legend.position = "right",
+                 strip.text.x = element_text(margin = margin(0.05,0,0.05,0, "cm")))+
+     scale_color_manual(values = c("red", "black")))/
+  (ggplot(data = u, aes(x = x, y = y, xend = xend, yend = yend))+
+     geom_edges(color = "darkgrey", linewidth = 0.05, alpha = 0.5)+
+     geom_nodes(aes(size = clone_size/depth*100, col = EBV), stroke = 0.1, alpha = 0.85)+
+     geom_text_repel(data = tu[duplicated(tu$community)==F,],
+                     aes(size = clone_size/depth*100, label = com_ID), col = "purple",
+                     min.segment.length = 0, size = 4)+
+     scale_radius(name = "%", trans = "log10", range = c(0.75, 5))+
+     theme_facet(legend.position = "right",
+                 strip.text.x = element_text(margin = margin(0.05,0,0.05,0, "cm")))+
+     scale_color_manual(values = c("red", "black")))
+```
+
+
+```{r, fig.width=6, fig.height=12}
+g_sup
+```
+
+```{r}
+ggsave(filename = "manuscript_fig/Supplementary_rs_graph.pdf",
+       plot = g_sup,
+       device = "pdf",
+       width = 6,
+       height = 12)
+```
+
+

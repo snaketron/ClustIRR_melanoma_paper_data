@@ -1,0 +1,281 @@
+---
+title: "Fig_5: cosine similarity of CJs"
+author: "SK"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    highlight: kate
+editor_options: 
+  markdown: 
+    wrap: 65
+---
+
+```{r, include=FALSE}
+.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
+```
+
+
+```{r, include=FALSE}
+library(ggplot2)
+library(ggforce)
+library(ggrepel)
+library(patchwork)
+library(dplyr)
+library(tidyr)
+library(ClustIRR)
+
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+```
+
+
+# Load data
+
+```{r}
+dc_light <- get(load("results/clustirr_90/dc_light.RData"))
+com <- dc_light$com
+
+# meta
+ns <- dc_light$ns
+ns <- ns[duplicated(ns[, c("sample", "patient_id_num")])==F,]
+
+ns <- ns[order(ns$patient_id_num, decreasing = F),]
+ns <- ns[order(ns$tissue, decreasing = F),]
+
+com <- com[,ns$sample]
+colnames(com) <- ns$patient_id_num
+```
+
+
+```{r}
+cs <- matrix(data = 0, nrow = ncol(com), ncol = ncol(com))
+
+# calculate CS
+for(i in 1:ncol(com)) {
+  for(j in 1:ncol(com)) {
+    vec1 <- com[,i]
+    vec2 <- com[,j]
+    cs[i,j] <- sum(vec1 * vec2) / (sqrt(sum(vec1^2)) * sqrt(sum(vec2^2)))
+  }
+}
+
+# format for plotting
+colnames(cs) <- 1:48
+rownames(cs) <- 1:48
+csdf <- reshape2::melt(cs)
+colnames(csdf) <- c("i", "j", "CS")
+rm(i, j, vec1, vec2)
+
+```
+
+
+```{r}
+fig_5 <- ggplot(data = csdf)+
+  geom_tile(aes(x = i, y = j, fill = CS), col = "white")+
+  scale_fill_distiller(palette = "Spectral")+
+  theme_bw(base_size = 10)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1),
+        legend.position = "top")+
+  xlab(label = '')+
+  ylab(label = '')+
+  scale_x_continuous(breaks = 1:48, labels = c(1:24, 1:24), expand = c(0,0))+
+  scale_y_continuous(breaks = 1:48, labels = c(1:24, 1:24), expand = c(0,0))
+
+fig_5
+```
+
+
+
+```{r}
+ggsave(filename = "manuscript_fig/Fig_5.pdf",
+       plot = fig_5,
+       device = "pdf",
+       width = 5.35,
+       height = 5.75)
+```
+
+
+
+# Fig 5 inset
+
+
+```{r, fig.width=3, fig.height=6}
+x <- dc_light$com[,c("LutzPT", "LutzSLN")]
+colnames(x) <- c("15|PT", "15|SLN")
+sfig_honeycomb_1 <- get_honeycombs(x)[[1]]+
+  xlab(label = "PT")+
+  ylab(label = "SLN")+
+  theme(legend.position = "top")+
+  scale_x_log10(limits = c(0.4, 40000)) +
+  scale_y_log10(limits = c(0.4, 40000))
+
+
+x <- dc_light$com[,c("SeidelPT", "SeidelSLN")]
+colnames(x) <- c("18|PT", "18|SLN")
+sfig_honeycomb_2 <- get_honeycombs(x)[[1]]+
+  xlab(label = "PT")+
+  ylab(label = "SLN")+
+  theme(legend.position = "top")+
+  scale_x_log10(limits = c(0.4, 40000)) +
+  scale_y_log10(limits = c(0.4, 40000))
+
+fig_5_inset <- sfig_honeycomb_1/sfig_honeycomb_2
+
+rm(sfig_honeycomb_1, sfig_honeycomb_2)
+fig_5_inset
+```
+
+
+```{r}
+ggsave(filename = "manuscript_fig/Fig_5_inset.png",
+       plot = fig_5_inset,
+       device = "png",
+       width = 3,
+       height = 5.5,
+       dpi = 900)
+```
+
+
+
+
+
+# Supplement
+
+```{r}
+colnames(cs) <- c(paste0(colnames(com)[1:24], "_PT"),
+                  paste0(colnames(com)[25:48], "_SLN"))
+rownames(cs) <- colnames(cs)
+csdf <- reshape2::melt(cs)
+colnames(csdf) <- c("i", "j", "CS")
+csdf$patient_id_num_i <- as.numeric(do.call(rbind, strsplit(x = as.character(csdf$i), split = "_"))[,1])
+csdf$tissue_i <- do.call(rbind, strsplit(x = as.character(csdf$i), split = "_"))[,2]
+csdf$patient_id_num_j <- as.numeric(do.call(rbind, strsplit(x = as.character(csdf$j), split = "_"))[,1])
+csdf$tissue_j <- do.call(rbind, strsplit(x = as.character(csdf$j), split = "_"))[,2]
+```
+
+
+```{r}
+csdf$key <- apply(X = csdf[, c("i", "j")], MARGIN = 1, FUN = function(x) {
+  return(paste0(sort(x), collapse = "|"))
+})
+
+sln <- csdf[csdf$tissue_i == "SLN" & 
+              csdf$tissue_j == "SLN" & 
+              csdf$patient_id_num_i!=csdf$patient_id_num_j,]
+sln <- sln[duplicated(sln$key)==F,]
+sln$group <- "SLN-vs-SLN"
+
+pt <- csdf[csdf$tissue_i == "PT" & 
+              csdf$tissue_j == "PT" & 
+              csdf$patient_id_num_i!=csdf$patient_id_num_j,]
+pt <- pt[duplicated(pt$key)==F,]
+pt$group <- "PT-vs-PT"
+```
+
+
+## Difference in CS: PT-vs-SLN within/between patients
+
+```{r, fig.width=4, fig.height=3}
+bp <- csdf[csdf$patient_id_num_i!=csdf$patient_id_num_j & 
+             csdf$tissue_i == "PT" &
+             csdf$tissue_j == "SLN",]
+
+wp <- csdf[csdf$patient_id_num_i==csdf$patient_id_num_j & 
+             csdf$tissue_i != csdf$tissue_j,]
+
+bp <- bp[duplicated(bp$key)==F,]
+bp$group <- "PT-vs-SLN (B)"
+wp <- wp[duplicated(wp$key)==F,]
+wp$group <- "PT-vs-SLN (W)"
+```
+
+
+```{r, fig.width=4, fig.height=3}
+t.test(wp$CS, bp$CS)
+wilcox.test(wp$CS, bp$CS)
+```
+
+
+```{r, fig.width=5, fig.height=3}
+d <- rbind(wp, bp, pt, sln)
+d_stats <- merge(x = aggregate(CS~group, data = d, FUN = mean),
+                 y = aggregate(CS~group, data = d, FUN = function(x) {
+                   return(sd(x)/sqrt(length(x)))
+                 }), by = "group")
+colnames(d_stats) <- c("group", "M", "SE")
+
+
+sfig_cs <- ggplot()+
+  geom_sina(data = d, aes(y = CS, x = group), size = 0.8, shape = 21)+
+  geom_text(data = d_stats, aes(y = .9, x = group, label = paste0(round(M, digits = 3), 
+                                                                      ', ', round(SE, digits = 3))), 
+            size = 2.65)+
+  xlab(label = "")+
+  theme_bw(base_size = 10)+
+  scale_x_discrete(limits = c("PT-vs-PT", "SLN-vs-SLN", 
+                              "PT-vs-SLN (B)", "PT-vs-SLN (W)"))
+
+
+
+sfig_cs
+
+
+ggsave(plot = sfig_cs, filename = "manuscript_fig/Supplementary_CS.pdf",
+       width = 5, height = 3)
+
+```
+
+
+## Biases due to depth?
+
+```{r}
+ns <- dc_light$ns
+
+csdf$depth_i <- NA
+csdf$depth_j <- NA
+for(i in 1:nrow(csdf)) {
+  csdf$depth_i[i] <- sum(ns$clone_size[ns$patient_id_num == csdf$patient_id_num_i[i] &
+                                         ns$tissue == csdf$tissue_i[i]])
+  csdf$depth_j[i] <- sum(ns$clone_size[ns$patient_id_num == csdf$patient_id_num_j[i] &
+                                         ns$tissue == csdf$tissue_j[i]])
+}
+rm(i)
+```
+
+
+```{r}
+csdf$min_depth <- apply(X = csdf[, c("depth_i", "depth_j")], MARGIN = 1, FUN = min)
+csdf$max_depth <- apply(X = csdf[, c("depth_i", "depth_j")], MARGIN = 1, FUN = max)
+csdf$delta_depth <- abs(csdf$depth_i-csdf$depth_j)
+x <- csdf[duplicated(csdf$key)==F,]
+x <- x[x$i != x$j,]
+
+cor.test(x = x$min_depth, y = x$CS, method = "spearman")
+cor.test(x = x$max_depth, y = x$CS, method = "spearman")
+
+g_depth_cs <- ggplot(data = x)+
+  geom_point(aes(x = min_depth, y = CS),
+             position = position_jitter(width = 0.01))+
+  scale_x_log10()+
+  ggtitle(label = "", subtitle = expression("Spearman "*rho*"=0.15"))+
+  xlab(label = "Minimum repertoire depth")+
+  theme(legend.position = "top")+
+  scale_color_discrete(name = "G")+
+  annotation_logticks(base = 10, sides = "b")
+g_depth_cs
+```
+
+```{r, fig.width=5, fig.height=6}
+ggplot(data = x)+
+  geom_point(aes(x = min_depth, y = max_depth, col = CS, size = CS),
+             position = position_jitter(width = 0.01))+
+  scale_x_log10(name = "Minimum repertoire depth")+
+  scale_y_log10(name = "Maximum repertoire depth")+
+  ggtitle(label = "", subtitle = expression("Spearman "*rho*"=0.15"))+
+  theme(legend.position = "top")+
+  annotation_logticks(base = 10, sides = "lb")+
+  scale_color_distiller(palette = "Spectral")
+```
+
+
+
+

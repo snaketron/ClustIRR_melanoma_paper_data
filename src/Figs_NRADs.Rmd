@@ -1,0 +1,169 @@
+---
+title: "Diversity Analysis"
+author: "SK"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    highlight: kate
+editor_options: 
+  markdown: 
+    wrap: 65
+---
+
+
+```{r, include=FALSE}
+.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
+source("/mnt/nfs/simo/r_utils/Stats.R")
+source("/mnt/nfs/simo/r_utils/Graphics.R")
+```
+
+
+```{r, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(ggforce)
+library(ggrepel)
+library(RADanalysis)
+library(patchwork)
+```
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+```
+
+```{r}
+t <- get(load("results/TCRb.RData"))
+```
+
+
+
+# Diversity analysis with NRADs
+
+
+## Raw RADs
+
+Even with 'raw' RADs we already see differences in diversity
+between SLN and PT. Black points are CDR3s that are identical
+to melanoma specific CDR3s
+
+I expected this:
+
+  * black points are mostly located at the heads of the RADs $\rightarrow$ this
+  is not the case
+  * black points are mostly located at the heads of the RADs **in PTs** 
+  $\rightarrow$ this is also not the case
+
+```{r}
+ggplot()+
+  geom_point(data  = t, aes(x = rank, y = templates, col = tissue), size = 0.5)+
+  geom_line(data  = t, aes(x = rank, y = templates, group = sample_name, col = tissue))+
+  scale_x_log10(name = "Rank")+
+  scale_y_log10(name = "RAD")+
+  theme_bw()+
+  theme(legend.position = "top")+
+  scale_color_manual(values = c("steelblue", "orange"))
+```
+
+```{r}
+sort(table(t$sample_name))
+```
+
+```{r, fig.width=5, fig.height=5}
+rads <- reshape2::acast(data = t, 
+                        formula = sample_name~rank, 
+                        value.var = "templates", 
+                        fill = 0)
+```
+
+```{r, cache=T,echo=F, message=F, comment=F, warning=F, error=F}
+nrads <- RADnormalization_matrix(input = rads, 
+                                 max_rank = 2079,
+                                 average_over = 500, 
+                                 verbose = F)
+```
+
+
+```{r, echo=F, message=F, comment=F, warning=F, error=F}
+nrad_data <- nrads$norm_matrix
+rownames(nrad_data) <- rownames(rads)
+nrad_data <- reshape2::melt(nrad_data)
+colnames(nrad_data) <- c("rownames", "rank", "norm.abundance")
+nrad_data$sample_name <- as.character(nrad_data$rownames)
+nrad_data$rownames <- NULL
+
+w <- merge(y = t[duplicated(t$sample_name)==F, c("name", "sample_name", "tissue", "timing")],
+           x = nrad_data, by.y = "sample_name", by.x = "sample_name", all.x = T)
+```
+
+
+## Shannon entropy and diversity
+
+```{r}
+hs <- c()
+for(s in unique(t$sample_name)) {
+  x <- t[t$sample_name == s, ]
+  x$p <- x$templates/sum(x$templates)
+  hs <- rbind(hs, data.frame(h = -sum(x$p*log(x$p)), 
+                             n_cell = sum(x$templates), 
+                             n_clone = nrow(x),
+                             sln_time = x$timing[1],
+                             tissue = x$tissue[1],
+                             sample_name = s,
+                             name = x$name[1]))
+}
+
+hs$h_cell <- hs$h/log(hs$n_cell)
+hs$h_clone <- hs$h/log(hs$n_clone)
+```
+
+
+```{r, fig.width=3.5, fig.height=3.3}
+hss <- merge(x = hs[hs$tissue=="PT",c("name", "h")], 
+             y = hs[hs$tissue=="SLN",c("name", "h")],
+             by = "name")
+g_H <- ggplot(data = hss)+
+  geom_point(aes(x = h.x, y = h.y), size = 1.25, shape = 21, fill = "black", col = "white")+
+  ylab(label = "H (SLN)")+
+  xlab(label = "H (PT)")+
+  theme(legend.position = "top")+
+  scale_x_continuous(limits = c(6, 11))+
+  scale_y_continuous(limits = c(6, 11))+
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed")
+
+g_H
+```
+
+
+```{r, fig.width=3.5, fig.height=3.3}
+ggsave(filename = "manuscript_fig/Supplementary_Figure_H.pdf",
+       plot = g_H,
+       device = "pdf",
+       width = 1.5,
+       height = 1.5)
+```
+
+
+
+
+```{r, eval = F}
+g_nrads <- (ggplot(data  = w)+
+             geom_line(aes(x = rank, y = norm.abundance, group = sample_name, col = tissue))+
+             scale_x_log10(name = "Rank")+
+             scale_y_log10(name = "Normalized abundance")+
+             annotation_logticks(base = 10, sides = c("lb"))+
+             theme(legend.position = c(0.8, 0.8),
+                   strip.text.x = element_text(margin = margin(0.02,0,0.02,0, "cm")))+
+             scale_color_manual(name = "Tissue", values = c("steelblue", "orange")))
+
+g_nrads
+```
+
+
+```{r}
+ggsave(filename = "manuscript_fig/Main_Figure_NRADs.pdf",
+       plot = g_nrads,
+       device = "pdf",
+       width = 4,
+       height = 3.5)
+```
+

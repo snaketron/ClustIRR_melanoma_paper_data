@@ -1,0 +1,68 @@
+---
+title: "Fig 6 + Supplementary_rs_graph"
+author: "SK"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    highlight: kate
+editor_options: 
+  markdown: 
+    wrap: 65
+---
+
+```{r}
+.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
+source("/mnt/nfs/simo/r_utils/Stats.R")
+
+library(dplyr)
+library(ggplot2)
+library(ggforce)
+library(ggrepel)
+library(patchwork)
+library(ClustIRR)
+library(igraph)
+library(visNetwork)
+library(ggnetwork)
+library(gglogo)
+library(Biostrings)
+ggplot2::theme_set(new = theme_bw(base_size = 10))
+```
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+```
+
+
+# Get data
+
+```{r}
+f <- list.files("results/clustirr_90/dco", pattern = "ps\\_", full.names = TRUE)
+
+yhat <- do.call(rbind, lapply(X = f, FUN = function(x) {
+  ps <- get(load(x))
+  y <- ps$y_hat
+  return(y)
+}))
+
+yhat$sf <- as.numeric(as.factor(yhat$sample))
+
+fig_ppc <- ggplot(data = yhat)+
+  facet_wrap(~sf, ncol = 5)+
+  geom_hex(aes(x = y_obs+0.5, y = mean+0.5), bins = 20)+
+  scale_x_log10(name = "Observed occupancy")+
+  scale_y_log10(name = "Predicted occupancy")+
+  annotation_logticks(base = 10, sides = "lb")+
+  geom_abline(intercept = 0, slope = 1, col = "darkgray")+
+  theme_bw(base_size = 10)
+
+fig_ppc
+```
+
+```{r}
+ggsave(filename = "manuscript_fig/Supplementary_PPC.pdf",
+       plot = fig_ppc,
+       device = "pdf",
+       width = 10,
+       height = 12)
+```
+

@@ -1,0 +1,70 @@
+---
+title: "Manuscript HLA associated coms"
+author: "SK"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    highlight: kate
+editor_options: 
+  markdown: 
+    wrap: 65
+---
+
+
+```{r}
+.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
+source("/mnt/nfs/simo/r_utils/Stats.R")
+
+library(dplyr)
+library(ggplot2)
+library(ggforce)
+library(ggrepel)
+library(patchwork)
+ggplot2::theme_set(new = theme_bw(base_size = 10))
+```
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+```
+
+```{r}
+e <- get(load("/mnt/nfs/simo/AIRR/TCR_PT_SLN/Emerson.RData"))
+meta_e <- get(load("/mnt/nfs/simo/AIRR/TCR_PT_SLN/meta_Emerson.RData"))
+```
+
+```{r}
+cdr3b <- "CASSIRSSYEQYF"
+
+e <- e[e$cdr3_amino_acid %in% cdr3b,]
+e$c <- 1
+e <- aggregate(c~sample_name, data = e, FUN = sum)
+meta_e$hit <- ifelse(regexpr(pattern = "A\\*02", text = meta_e$hla)!=-1, yes = "+", no = "-")
+e <- merge(x = e, y = meta_e[,c("sample_name", "hit")], by = "sample_name", all = TRUE)
+e$c[is.na(e$c)] <- 0
+
+w <- wilcox.test(e$c[e$hit=="-"], e$c[e$hit=="+"])
+
+g <- ggplot()+
+  facet_wrap(~"CASSIRSSYEQYF (HLA-A*02)")+
+  geom_sina(data = e, aes(x = hit, y = c), size = 0.7)+
+  ylab(label = "Clonotypes")+
+  geom_text(aes(x = "-", y = max(e$c)), label = paste0("log10(p)=", round(-log10(w$p.value), digits = 1)),
+            size = 2.5)+
+  theme(strip.text = element_text(size = 9, margin = margin()))+
+  xlab(label = "")
+```
+
+
+```{r, fig.width=3, fig.height=2}
+g 
+```
+
+
+```{r}
+ggsave(filename = "manuscript_fig/Supplementary_CASSIRSSYEQYF.pdf",
+       plot = g,
+       device = "pdf",
+       width = 3,
+       height = 3)
+```
+

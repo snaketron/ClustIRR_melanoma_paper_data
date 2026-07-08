@@ -1,0 +1,385 @@
+---
+title: "Manuscript HLA associated coms"
+author: "SK"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    highlight: kate
+editor_options: 
+  markdown: 
+    wrap: 65
+---
+
+
+```{r}
+.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
+source("/mnt/nfs/simo/r_utils/Stats.R")
+
+library(dplyr)
+library(ggplot2)
+library(ggforce)
+library(ggrepel)
+library(patchwork)
+library(ClustIRR)
+library(Biostrings)
+library(igraph)
+ggplot2::theme_set(new = theme_bw(base_size = 10))
+```
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+```
+
+```{r}
+# get node summary
+dc_light <- get(load(file = "results/clustirr_90/dc_light.RData"))
+ns <- dc_light$ns
+
+ns$MDA <- ifelse(ns$vdjdb_MDA==1, yes = "MDA", "non-MDA")
+ns$CTA <- ifelse(ns$vdjdb_CTA==1, yes = "CTA", "non-CTA")
+ns$key <- paste0(ns$patient_id, '-', ns$community)
+```
+
+
+```{r}
+# meta for patients and their HLAs
+meta <- ns[duplicated(ns$patient_id_num)==F, c("patient_id_num", "HLA_A", "HLA_B", "HLA_C")]
+names(which(sort(table(unlist(strsplit(x = meta$HLA_A, split = " "))))>=4))
+names(which(sort(table(unlist(strsplit(x = meta$HLA_B, split = " "))))>=4))
+names(which(sort(table(unlist(strsplit(x = meta$HLA_C, split = " "))))>=4))
+```
+
+
+```{r}
+# get pt purity
+f_patient <- get_community_feature_purity(node_summary = ns, node_feature = "patient_id")
+colnames(f_patient)[2:4] <- paste0(colnames(f_patient)[2:4], "_pt")
+
+# get tissue purity
+f_tissue <- ClustIRR::get_community_feature_purity(node_summary = ns, node_feature = "tissue")
+colnames(f_tissue)[2:4] <- paste0(colnames(f_tissue)[2:4], "_tissue")
+ns$c <- 1
+x <- aggregate(c~tissue+community, data = ns, FUN = sum)
+x <- merge(x = x[x$tissue=="PT",], y = x[x$tissue=="SLN",], by = "community", all = T)
+x$c.x[is.na(x$c.x)] <- 0
+x$c.y[is.na(x$c.y)] <- 0
+x$max_tissue <- ifelse(test = x$c.x>x$c.y, yes = "PT", no = "SLN")
+x$max_tissue[x$c.x==x$c.y] <- "PT=SLN"
+f_tissue <- merge(x = f_tissue, y = x[,c("max_tissue", "community")], by = "community")
+
+f <- cbind(f_patient, f_tissue[,c("GI_tissue", "H_tissue", "D_tissue", "max_tissue")])
+rm(x, f_patient, f_tissue)
+```
+
+
+```{r}
+# binary: HLA present vs. absent
+HLAs <- c("A\\*03", "A\\*32", "A\\*01", "A\\*24", "A\\*02",
+          "B\\*51", "B\\*07", "B\\*44", "B\\*08", "B\\*35",
+          "C\\*03", "C\\*01", "C\\*12", "C\\*04", "C\\*07")
+
+f_hla <- vector(mode = "list", length = length(HLAs))
+names(f_hla) <- HLAs
+
+for(hla in HLAs) {
+  cat(hla, ", ")
+  h <- gsub(pattern = "\\\\|\\*", replacement = '', x = hla)
+  key <- paste0("HLA_", substr(x = h, start = 1, stop = 1))
+  ns[, h] <- ifelse(test = regexpr(pattern = hla, text = ns[,key])!=-1, 
+                    yes = paste0(h, "+"), no = paste0(h, "-"))
+  # f <- get_community_feature_purity(node_summary = ns, node_feature = h)
+  ns$y <- ifelse(test = ns[, h]==paste0(h, "+"), yes = 1, no = 0)
+  ns$n <- 1
+  f <- merge(x = aggregate(y~community, data = ns, FUN = sum),
+             y = aggregate(n~community, data = ns, FUN = sum), all = TRUE)
+  f$y[is.na(f$y)] <- 0
+  # f <- merge(x = f, y = a, by = "community", all.x = TRUE)
+  f <- f[order(f$community, decreasing = FALSE), ]
+  f$HLA <- h
+  f$Y <- table(ns[,h])[paste0(h, "+")]
+  f$N <- nrow(ns)
+  f_hla[[hla]] <- f
+}
+
+f_hla <- do.call(rbind, f_hla)
+f_hla$p <- f_hla$y/f_hla$n
+f_hla$P <- f_hla$Y/f_hla$N
+
+rm(hla, h, key, a)
+```
+
+
+
+```{r}
+# deltas + epsilons
+ds <- do.call(rbind, lapply(X = list.files(path = "results/clustirr_90/dco/", 
+                                           pattern = "ps\\_", full.names = T), 
+                             FUN = function(x) {
+  o <- get(load(file = x))
+  
+  y <- o$delta
+  y <- y[which(y$sample_1==y$sample_1[1] & y$sample_2 == y$sample_2[1]), ]
+  colnames(y)[3:9] <- paste0("delta_", colnames(y)[3:9])
+  y$k <- NULL
+  
+  e <- o$epsilon
+  e <- e[which(e$sample_1==e$sample_1[1] & e$sample_2 == e$sample_2[1]), ]
+  colnames(e)[3:9] <- paste0("epsilon_", colnames(e)[3:9])
+  e$k <- NULL
+  
+  y <- merge(x = y, y = e, by = c("community", "sample_1", "sample_2", "contrast"))
+  y <- y[order(y$community, decreasing = F), ]
+  
+  cs <- get(load(file = gsub(pattern = "ps_", replacement = 'cs_', x = x)))
+  y$community_true <- as.numeric(rownames(cs))
+  
+  return(y)
+}))
+
+ds <- ds[which(regexpr(pattern = "PT", text = ds$contrast, ignore.case = FALSE)!=-1),]
+
+tm <- ns[,c("sample", "patient_id", "patient_id_num")]
+tm <- tm[duplicated(tm)==FALSE,]
+ds <- merge(x = ds, y = tm, by.x = "sample_1", by.y = "sample", all.x = TRUE)
+rm(tm)
+
+ds$key <- paste0(ds$patient_id, '-', ds$community_true)
+
+ds$hit <- '-'
+ds$hit[ds$key %in% ns$key[ns$MDA=="MDA"]] <- "MDA"
+ds$hit[ds$key %in% ns$key[ns$CTA=="CTA"]] <- "CTA"
+ds$hit[ds$key %in% ns$key[ns$MDA=="MDA"] & ds$key %in% ns$key[ns$CTA=="CTA"]] <- "MDA/CTA"
+ds$key_sel <- paste0(ds$community_true, '|', ds$patient_id_num)
+```
+
+
+```{r}
+ds_sel <- ds[ds$epsilon_pmax >= 0.99,]
+
+ds_sel <- data.frame(table(ds_sel$community_true, ds_sel$epsilon_mean>0))
+colnames(ds_sel) <- c("community_true", "dir", "freq")
+dss <- merge(x = ds_sel[ds_sel$dir == T, c("community_true", "freq")], 
+                y = ds_sel[ds_sel$dir == F,], by = "community_true")
+
+h <- dss[dss$freq.x>=4 | dss$freq.y>=4,]
+```
+
+
+
+```{r}
+q <- ns[ns$community %in% h$community_true,]
+q$y <- 1
+q <- aggregate(y~patient_id_num+community+HLA_A+HLA_B+HLA_C, data = q, FUN = sum)
+n <- aggregate(y~community, data = q, FUN = sum)
+colnames(n) <- c("community", "n")
+q <- merge(x = q, y = n, by = "community", all.x = TRUE)
+
+hla_bars <- c()
+for(hla in HLAs) {
+  cat(hla, ", ")
+  ha <- gsub(pattern = "\\\\|\\*", replacement = '', x = hla)
+  key <- paste0("HLA_", substr(x = ha, start = 1, stop = 1))
+  q[, "HLA"] <- ifelse(test = regexpr(pattern = hla, text = q[,key])!=-1, 
+                       yes = paste0(ha, "+"), no = paste0(ha, "-"))
+  q[, "HLA_type"] <- hla
+  hla_bars <- rbind(hla_bars, q)
+}
+
+rm(q, hla, ha, n, key)
+```
+
+<!-- CASSYGQAYEQYF -->
+
+
+```{r}
+# recurrent coms selected
+rs <- c(20665, 40231, 22077, 35, 6995, 7730, 130, 4640)
+```
+
+
+
+
+```{r, fig.width=4, fig.height=4}
+hla_bars <- hla_bars[order(hla_bars$y, decreasing = F),]
+hla_bars <- hla_bars[which(regexpr(pattern = "\\+", text = hla_bars$HLA)!=-1), ]
+hla_bars <- hla_bars[hla_bars$community %in% rs,]
+hla_bars$HLA_label <- gsub(pattern = "\\+", replacement = '', x = hla_bars$HLA)
+hla_bars$HLA_label <- gsub(pattern = "A", replacement = "A*", x = hla_bars$HLA_label)
+hla_bars$HLA_label <- gsub(pattern = "B", replacement = "B*", x = hla_bars$HLA_label)
+hla_bars$HLA_label <- gsub(pattern = "C", replacement = "C*", x = hla_bars$HLA_label)
+hla_bars$community <- factor(x = hla_bars$community, levels = rs)
+
+g_prevalence_pt <- ggplot(data = hla_bars)+
+  facet_wrap(~community, ncol = 1)+
+  aes(x = HLA_label, y = y/n, group = patient_id_num)+
+  geom_bar(stat = "identity", col = "white", fill = "black", linewidth = 0.1)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  theme(strip.text = element_text(size = 9, margin = margin()))+
+  scale_y_continuous(name = "Prevalence", limits = c(0,1))+
+  xlab(label = "HLA")
+
+g_prevalence_pt
+```
+
+
+```{r}
+sf <- f_hla[f_hla$community %in% h$community_true,]
+```
+
+
+```{r}
+library(rstan)
+
+fit <- stan(file = "model/model_hla.stan",
+            data = list(K = nrow(sf), y = sf$y, n = sf$n, Y = sf$Y, N = sf$N),
+            chains = 4,
+            iter = 2000,
+            cores = 4)
+
+s_p <- data.frame(summary(object = fit, par = "p")$summary)
+colnames(s_p) <- paste0("p_", colnames(s_p))
+
+s_P <- data.frame(summary(object = fit, par = "P")$summary)
+colnames(s_P) <- paste0("P_", colnames(s_P))
+
+lfc <- data.frame(summary(object = fit, par = "log_fold_change")$summary)
+colnames(lfc) <- paste0("lfc_", colnames(lfc))
+
+diff <- data.frame(summary(object = fit, par = "diff")$summary)
+colnames(diff) <- paste0("diff_", colnames(diff))
+
+s <- cbind(s_p, s_P, lfc, diff)
+sf <- cbind(sf, s)
+
+sf$HLA <- gsub(pattern = "D\\_", replacement = '', x = sf$HLA)
+sf$HLA <- gsub(pattern = "A", replacement = 'A*', x = sf$HLA)
+sf$HLA <- gsub(pattern = "B", replacement = 'B*', x = sf$HLA)
+sf$HLA <- gsub(pattern = "C", replacement = 'C*', x = sf$HLA)
+
+rm(s_p, s_P, lfc, diff, s)
+```
+
+```{r, fig.width=2.5, fig.height=5.5}
+sf$MDA <- ifelse(test = sf$community %in% ns$community[ns$MDA=="MDA" | ns$CTA == "CTA"], yes = "+", no = "")
+sf <- merge(x = sf, y = h[, c("community_true", "freq.x", "freq.y")], all.x = TRUE, 
+      by.x = "community", by.y = "community_true")
+
+g_HLA <- ggplot()+
+  geom_tile(data = sf,
+            aes(x = HLA, y = as.factor(community), fill = diff_mean), col = "white")+
+  geom_tile(data = sf[duplicated(sf$community)==F,],
+            aes(x = "MDA/CTA", y = as.factor(community)), fill = "white")+
+  geom_text(data = sf[duplicated(sf$community)==F,],
+            aes(x = "MDA/CTA", y = as.factor(community), label = MDA), 
+            size = 2, fill = "white")+
+  geom_tile(data = sf[duplicated(sf$community)==F,],
+            aes(x = "PT>SLN", y = as.factor(community)), fill = "white")+
+  geom_text(data = sf[duplicated(sf$community)==F,],
+            aes(x = "PT>SLN", y = as.factor(community), label = freq.x), 
+            size = 2, fill = "white")+
+  geom_tile(data = sf[duplicated(sf$community)==F,],
+            aes(x = "PT<SLN", y = as.factor(community)), fill = "white")+
+  geom_text(data = sf[duplicated(sf$community)==F,],
+            aes(x = "PT<SLN", y = as.factor(community), label = freq.y), 
+            size = 2, fill = "white")+
+  scale_fill_distiller(name = expression(delta), palette = "Spectral",
+                       breaks = scales::pretty_breaks(n = 5))+
+  theme(legend.position = "top", legend.key.height = unit(0.4, "cm"),
+        legend.key.width = unit(0.7, "cm"))+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  ylab(label = "DCJ")
+
+g_HLA
+```
+
+
+```{r}
+g_density <- ggplot(data = sf)+
+  geom_histogram(aes(diff_mean))+
+  xlab(label = expression(delta))
+```
+
+
+
+```{r}
+z <- sf[sf$community %in% sf$community[which(sf$diff_mean>0.15)],]
+g_prevalence <- ggplot(data = z)+
+  facet_wrap(~community, ncol = 1)+
+  geom_point(aes(x = P, y = p))+
+  geom_text_repel(data = z[z$diff_mean>0.15,],
+                  aes(x = P, y = p, label = HLA), size = 2.75, 
+                  min.segment.length = 0, col = "red")+
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed")+
+  theme(strip.text = element_text(size = 9, margin = margin()))+
+  xlab(label = "Background prevalence")+
+  ylab(label = "DCJ prevalence")+
+  xlim(c(0,1))+
+  ylim(c(0,1))
+```
+
+
+```{r}
+e <- get(load("/mnt/nfs/simo/AIRR/TCR_PT_SLN/Emerson.RData"))
+meta_e <- get(load("/mnt/nfs/simo/AIRR/TCR_PT_SLN/meta_Emerson.RData"))
+```
+
+
+```{r}
+get_emerson_plot <- function(com_id, hla, e, meta_e, ns) {
+  t <- e[e$cdr3_amino_acid %in% ns$cdr3_amino_acid[ns$community==com_id],]
+  t$c <- 1
+  t <- aggregate(c~sample_name, data = t, FUN = sum)
+  meta_e$hit <- ifelse(regexpr(pattern = hla, text = meta_e$hla)!=-1, yes = "+", no = "-")
+  t <- merge(x = t, y = meta_e[,c("sample_name", "hit")], by = "sample_name", all = TRUE)
+  t$c[is.na(t$c)] <- 0
+  
+  w <- wilcox.test(t$c[t$hit=="-"], t$c[t$hit=="+"])
+  
+  g <- ggplot()+
+    facet_wrap(~paste0(com_id, "\n(", hla, ")"))+
+    geom_sina(data = t, aes(x = hit, y = c), size = 0.7)+
+    ylab(label = "Clonotypes")+
+    geom_text(aes(x = "-", y = max(t$c)), label = paste0("-log10(p)=", round(-log10(w$p.value), digits = 1)),
+              size = 2.5)+
+    theme(strip.text = element_text(size = 9, margin = margin()))
+  
+  return(g)
+}
+```
+
+
+```{r}
+z <- sf[which(sf$diff_mean>0.15), c("community", "HLA")]
+z <- z[which(regexpr(pattern = "C", text = z$HLA)==-1),] # ignore C*04 and C*07 -> no Emerson data
+
+g_emerson <- vector(mode = "list", length = nrow(z))
+for(i in 1:nrow(z)) {
+  g_emerson[[i]] <- get_emerson_plot(com_id = z$community[i], hla = z$HLA[i], 
+                                     e = e, meta_e = meta_e, ns = ns)
+}
+
+g_emerson <- patchwork::wrap_plots(g_emerson, ncol = 2)
+```
+
+
+
+
+```{r, fig.width=12, fig.height=9}
+sfig_delta <- (g_HLA|((g_density/(g_prevalence|g_prevalence_pt))+
+                        patchwork::plot_layout(heights = c(1,6)))|g_emerson)+
+  patchwork::plot_layout(widths = c(1.5,3,1.2))+
+  patchwork::plot_annotation(tag_levels = 'A')
+sfig_delta
+```
+
+
+
+```{r}
+ggsave(filename = "manuscript_fig/Supplementary_HLA.pdf",
+       plot = sfig_delta,
+       device = "pdf",
+       width = 12,
+       height = 8)
+```
+
+

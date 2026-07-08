@@ -1,0 +1,324 @@
+---
+title: "DGU Analysis"
+author: "SK"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::robobook:
+    highlight: kate
+editor_options: 
+  markdown: 
+    wrap: 65
+---
+
+```{r, include=FALSE}
+.libPaths(new = "/mnt/nfs/simo/rpack_4_4/")
+source("/mnt/nfs/simo/r_utils/Stats.R")
+source("/mnt/nfs/simo/r_utils/Graphics.R")
+```
+
+
+```{r, include=FALSE}
+library(ggplot2)
+library(ggforce)
+library(ggrepel)
+library(patchwork)
+library(IgGeneUsage)
+library(rstan)
+
+options(mc.cores = parallel::detectCores())
+rstan_options(auto_write = TRUE)
+rstan_options(threads_per_chain = 1)
+```
+
+
+```{r, include=FALSE}
+knitr::opts_chunk$set(echo = F, message = F, warning = F)
+```
+
+
+```{r}
+t <- get(load("results/TCRb.RData"))
+t$patient_id_num <- as.character(t$patient_id_num)
+```
+
+
+# Differential gene usage (DGU) of TRBV gene segments
+How: our method IgGeneUsage
+Data: each clonotype counts as 1. Do we have a selection on clonotypes using 
+specific genes.
+
+```{r}
+dir.create("results/iggeneusage/")
+```
+
+
+## PPC v usage
+
+```{r, eval=F}
+u <- t
+t$gene_usage_count <- 1
+u <- aggregate(gene_usage_count~v_gene+patient_id_num+tissue, data = t, FUN = sum)
+u$v <- u$v_gene
+u <- u[, c("patient_id_num", "v", "tissue", "gene_usage_count")]
+colnames(u) <- c("individual_id", "gene_name", "condition", "gene_usage_count")
+dgu_v <- DGU(ud = u,
+             mcmc_cores = 5,
+             mcmc_chains = 5,
+             mcmc_warmup = 2000,
+             mcmc_steps = 5000,
+             adapt_delta = 0.95,
+             max_treedepth = 11,
+             paired = TRUE)
+
+save(dgu_v, file = "results/iggeneusage/DGU_TRBV_clone.RData")
+cat("DONE")
+```
+
+
+```{r, fig.width=7, fig.height=4}
+dgu_v <- get(load("results/iggeneusage/DGU_TRBV_clone.RData"))
+```
+
+
+```{r, fig.width=7, fig.height=7}
+sfig_ppc_vusage <- ggplot(data = dgu_v$ppc$ppc_rep)+
+  facet_wrap(facets = ~individual_id, ncol = 4, scales = "free")+
+  geom_errorbar(aes(x = observed_count/1000, y = ppc_mean_count/1000, 
+                    ymin = ppc_L_count/1000, ymax = ppc_H_count/1000), width = 0.01)+
+  geom_point(aes(x = observed_count/1000, y = ppc_mean_count/1000), size = 0.5, col = "gray")+
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", col = "darkgray")+
+  theme_bw(base_size = 9)+
+  theme(strip.text.x = element_text(margin = margin(0.02,0,0.02,0, "cm")))+
+  xlab(label = "Observed usage [count/1000]")+
+  ylab(label = "Predicted usage [count/1000]")
+
+sfig_ppc_vusage
+```
+
+## DGU V
+
+```{r, fig.width=7, fig.height=5, eval=T}
+# Main
+dgu_v$dgu_prob$v <- gsub(pattern = "TCRBV", replacement = '', x = dgu_v$dgu_prob$gene_name)
+dgu_v$dgu$v <- gsub(pattern = "TCRBV", replacement = '', x = dgu_v$dgu$gene_name)
+
+
+fig_dgu_v <- ggplot(data = dgu_v$dgu_prob)+
+  geom_hline(yintercept = 0, linetype = "dashed", col = "gray")+
+  geom_errorbar(aes(y = es_prob_mean, x = v, ymin = es_prob_L,
+                    ymax = es_prob_H), width = 0.1)+
+  geom_point(aes(y = es_prob_mean, x = v, col = pmax), size = 1.5)+
+  theme_bw(base_size = 9)+
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  scale_color_distiller(name = expression(pi), palette = "Spectral", limits = c(0, 1))+
+  ylab(label = expression(gamma*" (PT-SLN)"))+
+  xlab(label = "")+
+  guides(color = guide_colourbar(barwidth = 6, barheight = .8))
+
+
+ppc <- dgu_v$ud$proc_ud
+ppc <- ppc[ppc$gene_name %in% dgu_v$dgu_prob$gene_name[dgu_v$dgu_prob$pmax >= 0.99],]
+ppc$v <- gsub(pattern = "TCRBV", replacement = '', x = ppc$gene_name)
+
+fig_dgu_v_examples <- ggplot(data = ppc)+
+  facet_wrap(facets = ~v, scales = "free_y", nrow = 2)+
+  geom_line(aes(y = gene_usage_prop, x = condition,
+                group = individual_org_name), col = "darkgray")+
+  geom_point(aes(y = gene_usage_prop, x = condition), size = .7, shape = 21, fill = "white",
+             position = position_jitter(width = 0.05, height = 0, seed = 123))+
+  theme_bw(base_size = 9)+
+  theme(strip.text.x = element_text(margin = margin(0.02,0,0.02,0, "cm")))+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 3), name = "Relative gene usage")
+
+
+fig2 <- (fig_dgu_v/fig_dgu_v_examples)+patchwork::plot_layout(heights = c(1.5, 1))
+fig2
+```
+
+
+
+## PPC pt vs sln (v)
+
+```{r, fig.width=7, fig.height=10}
+ppc <- dgu_v$ud$proc_ud
+
+ppc$v <- gsub(pattern = "TCRBV", replacement = '', x = ppc$gene_name)
+
+sfig_usage_v <- ggplot(data = ppc)+
+  facet_wrap(facets = ~v, scales = "free_y", ncol = 5)+
+  geom_line(aes(y = gene_usage_prop, x = condition,
+                group = individual_org_name), col = "darkgray")+
+  geom_point(aes(y = gene_usage_prop, x = condition), size = 1, shape = 21, fill = "white",
+             position = position_jitter(width = 0.1, height = 0, seed = 123))+
+  theme_bw(base_size = 9)+
+  theme(strip.text.x = element_text(margin = margin(0.02,0,0.02,0, "cm")))+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 3))+
+  ylab(label = "Relative usage")
+
+sfig_usage_v
+```
+
+
+
+# Differential gene usage (DGU) of TRBJ gene segments
+
+```{r, eval=F}
+u <- t
+t$gene_usage_count <- 1
+u <- aggregate(gene_usage_count~j_gene+patient_id_num+tissue, data = t, FUN = sum)
+u$j <- u$j_gene
+u <- u[, c("patient_id_num", "j", "tissue", "gene_usage_count")]
+colnames(u) <- c("individual_id", "gene_name", "condition", "gene_usage_count")
+dgu_j <- DGU(ud = u,
+             mcmc_cores = 5,
+             mcmc_chains = 5,
+             mcmc_warmup = 2000,
+             mcmc_steps = 5000,
+             adapt_delta = 0.95,
+             max_treedepth = 11,
+             paired = TRUE)
+
+save(dgu_j, file = "results/iggeneusage/DGU_TRBJ_clone.RData")
+cat("DONE")
+```
+
+
+```{r, fig.width=7, fig.height=4}
+dgu_j <- get(load("results/iggeneusage/DGU_TRBJ_clone.RData"))
+rm(dgu_clone)
+```
+
+
+## PPC J usage
+
+```{r, fig.width=7, fig.height=10}
+sfig_ppc_jusage <- ggplot(data = dgu_j$ppc$ppc_rep)+
+  facet_wrap(facets = ~individual_id, ncol = 4, scales = "free")+
+  geom_errorbar(aes(x = observed_count/1000, y = ppc_mean_count/1000, 
+                    ymin = ppc_L_count/1000, ymax = ppc_H_count/1000), width = 0.01)+
+  geom_point(aes(x = observed_count/1000, y = ppc_mean_count/1000), size = 0.5, col = "gray")+
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", col = "darkgray")+
+  theme_bw(base_size = 9)+
+  theme(strip.text.x = element_text(margin = margin(0.02,0,0.02,0, "cm")))+
+  xlab(label = "Observed usage [count/1000]")+
+  ylab(label = "Predicted usage [count/1000]")
+
+sfig_ppc_jusage
+```
+
+## DGU J
+
+```{r, fig.width=3, fig.height=4, eval=T}
+# Main
+dgu_j$dgu_prob$j <- gsub(pattern = "TCRBJ", replacement = '', x = dgu_j$dgu_prob$gene_name)
+dgu_j$dgu$j <- gsub(pattern = "TCRBJ", replacement = '', x = dgu_j$dgu$gene_name)
+
+
+fig_dgu_j <- ggplot(data = dgu_j$dgu_prob)+
+  geom_hline(yintercept = 0, linetype = "dashed", col = "gray")+
+  geom_errorbar(aes(y = es_prob_mean, x = j, ymin = es_prob_L,
+                    ymax = es_prob_H), width = 0.1)+
+  geom_point(aes(y = es_prob_mean, x = j, col = pmax), size = 1.5)+
+  theme_bw(base_size = 9)+
+  theme(legend.position = "top",
+        axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+
+  scale_color_distiller(name = expression(pi), palette = "Spectral", limits = c(0, 1))+
+  ylab(label = expression(gamma*" (PT-SLN)"))+
+  xlab(label = "")+
+  guides(color = guide_colourbar(barwidth = 6, barheight = .8))
+
+
+ppc <- dgu_j$ud$proc_ud
+ppc <- ppc[ppc$gene_name %in% dgu_j$dgu_prob$gene_name[dgu_j$dgu_prob$pmax >= 0.99],]
+ppc$j <- gsub(pattern = "TCRBJ", replacement = '', x = ppc$gene_name)
+
+
+fig_dgu_j_examples <- ggplot(data = ppc)+
+  facet_wrap(facets = ~j, scales = "free_y", nrow = 2)+
+  geom_line(aes(y = gene_usage_prop, x = condition,
+                group = individual_org_name), col = "darkgray")+
+  geom_point(aes(y = gene_usage_prop, x = condition), size = .7, shape = 21, fill = "white",
+             position = position_jitter(width = 0.05, height = 0, seed = 123))+
+  theme_bw(base_size = 9)+
+  theme(strip.text.x = element_text(margin = margin(0.02,0,0.02,0, "cm")))+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 3), name = "Relative gene usage")
+
+
+fig2j <- (fig_dgu_j/(fig_dgu_j_examples))+patchwork::plot_layout(heights = c(1.25, 1))
+fig2j
+```
+
+
+
+
+
+
+```{r, fig.width=8.5, fig.height=3.5}
+g_top <- (fig_dgu_v|fig_dgu_j)+patchwork::plot_layout(widths = c(4.5, 1))
+g_bottom <- (fig_dgu_v_examples|fig_dgu_j_examples)+patchwork::plot_layout(widths = c(4.5, 1))
+
+g <- g_top/g_bottom
+g
+```
+
+
+
+```{r, fig.width=6, fig.height=5, eval=T}
+ggsave(filename = "manuscript_fig/Main_DGU.pdf",
+       plot = g,
+       device = "pdf",
+       width = 8,
+       height = 4)
+```
+
+
+
+## PPC pt vs sln (J)
+
+```{r, fig.width=5, fig.height=3}
+ppc <- dgu_j$ud$proc_ud
+
+ppc$j <- gsub(pattern = "TCRBJ", replacement = '', x = ppc$gene_name)
+
+sfig_usage_j <- ggplot(data = ppc)+
+  facet_wrap(facets = ~j, scales = "free_y", ncol = 5)+
+  geom_line(aes(y = gene_usage_prop, x = condition,
+                group = individual_org_name), col = "darkgray")+
+  geom_point(aes(y = gene_usage_prop, x = condition), size = 1, shape = 21, fill = "white",
+             position = position_jitter(width = 0.1, height = 0, seed = 123))+
+  theme_bw(base_size = 9)+
+  theme(strip.text.x = element_text(margin = margin(0.02,0,0.02,0, "cm")))+
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 3))+
+  ylab(label = "Relative usage")
+
+sfig_usage_j
+```
+
+
+
+
+
+```{r, fig.width=15, fig.height=16}
+sup_2 <- ((sfig_ppc_vusage|sfig_ppc_jusage)/(sfig_usage_v|sfig_usage_j))+
+  patchwork::plot_layout(heights = c(1, 1))+
+  patchwork::plot_annotation(tag_levels = 'A')
+
+sup_2
+```
+
+
+
+
+
+```{r, fig.width=6, fig.height=5, eval=T}
+ggsave(filename = "manuscript_fig/Supplementary_PPC.pdf",
+       plot = sup_2,
+       device = "pdf",
+       width = 11,
+       height = 11)
+```
+
+
+
+
